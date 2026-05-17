@@ -1,0 +1,12 @@
+{
+  "domain": "appliance_monitor",
+  "name": "Appliance Monitor",
+  "codeowners": [
+    "@Philipp-Binder"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/dotphib/appliance_monitor",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/dotphib/appliance_monitor/issues",
+  "version": "0.1.0"
+}
