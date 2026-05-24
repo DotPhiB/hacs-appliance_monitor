@@ -2,31 +2,72 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util.dt import utcnow
 
-from .api import (
-    IntegrationBlueprintApiClientAuthenticationError,
-    IntegrationBlueprintApiClientError,
+from .const import (
+    CONF_IDLE_THRESHOLD,
+    CONF_IDLE_TIMEOUT,
+    CONF_POWER_SENSOR,
+    CONF_START_THRESHOLD,
+    LOGGER,
 )
+from .state_machine import ApplianceStateMachine
 
 if TYPE_CHECKING:
-    from .data import IntegrationBlueprintConfigEntry
+    from homeassistant.core import HomeAssistant
+
+    from .data import ApplianceMonitorConfigEntry
 
 
-# https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
-class BlueprintDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching data from the API."""
+class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Polls the configured power sensor and drives the appliance state machine."""
 
-    config_entry: IntegrationBlueprintConfigEntry
+    config_entry: ApplianceMonitorConfigEntry
 
-    async def _async_update_data(self) -> Any:
-        """Update data via library."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ApplianceMonitorConfigEntry,
+    ) -> None:
+        """Initialize coordinator and state machine from config entry data."""
+        super().__init__(
+            hass=hass,
+            logger=LOGGER,
+            name=f"appliance_monitor_{config_entry.entry_id}",
+            update_interval=timedelta(seconds=30),
+        )
+        self.config_entry = config_entry
+        self._state_machine = ApplianceStateMachine(
+            start_threshold=config_entry.data[CONF_START_THRESHOLD],
+            idle_threshold=config_entry.data[CONF_IDLE_THRESHOLD],
+            idle_timeout_seconds=config_entry.data[CONF_IDLE_TIMEOUT] * 60,
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Read the power sensor state and advance the state machine."""
+        entity_id: str = self.config_entry.data[CONF_POWER_SENSOR]
+        state = self.hass.states.get(entity_id)
+
+        if state is None or state.state in {"unavailable", "unknown"}:
+            msg = f"Power sensor {entity_id} is unavailable"
+            raise UpdateFailed(msg)
+
         try:
-            return await self.config_entry.runtime_data.client.async_get_data()
-        except IntegrationBlueprintApiClientAuthenticationError as exception:
-            raise ConfigEntryAuthFailed(exception) from exception
-        except IntegrationBlueprintApiClientError as exception:
-            raise UpdateFailed(exception) from exception
+            power = float(state.state)
+        except ValueError as err:
+            msg = f"Power sensor {entity_id} returned non-numeric value: {state.state}"
+            raise UpdateFailed(msg) from err
+
+        self._state_machine.update(power, utcnow())
+
+        return {
+            "state": str(self._state_machine.state),
+            "running": self._state_machine.is_running,
+            "finished": self._state_machine.is_finished,
+            "runtime": self._state_machine.runtime_seconds,
+            "power": power,
+        }

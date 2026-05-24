@@ -1,26 +1,25 @@
-"""Adds config flow for Blueprint."""
+"""Config flow for Appliance Monitor."""
 
 from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
-from homeassistant.loader import async_get_loaded_integration
-from slugify import slugify
 
-from .api import (
-    IntegrationBlueprintApiClient,
-    IntegrationBlueprintApiClientAuthenticationError,
-    IntegrationBlueprintApiClientCommunicationError,
-    IntegrationBlueprintApiClientError,
+from .const import (
+    CONF_IDLE_THRESHOLD,
+    CONF_IDLE_TIMEOUT,
+    CONF_POWER_SENSOR,
+    CONF_START_THRESHOLD,
+    DEFAULT_IDLE_THRESHOLD,
+    DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_START_THRESHOLD,
+    DOMAIN,
 )
-from .const import DOMAIN, LOGGER
 
 
-class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Blueprint."""
+class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+    """Config flow for Appliance Monitor."""
 
     VERSION = 1
 
@@ -29,70 +28,77 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Handle a flow initialized by the user."""
-        _errors = {}
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            try:
-                await self._test_credentials(
-                    username=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                )
-            except IntegrationBlueprintApiClientAuthenticationError as exception:
-                LOGGER.warning(exception)
-                _errors["base"] = "auth"
-            except IntegrationBlueprintApiClientCommunicationError as exception:
-                LOGGER.error(exception)
-                _errors["base"] = "connection"
-            except IntegrationBlueprintApiClientError as exception:
-                LOGGER.exception(exception)
-                _errors["base"] = "unknown"
+            entity_id: str = user_input[CONF_POWER_SENSOR]
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                errors[CONF_POWER_SENSOR] = "sensor_not_found"
             else:
-                await self.async_set_unique_id(
-                    ## Do NOT use this in production code
-                    ## The unique_id should never be something that can change
-                    ## https://developers.home-assistant.io/docs/config_entries_config_flow_handler#unique-ids
-                    unique_id=slugify(user_input[CONF_USERNAME])
-                )
+                try:
+                    float(state.state)
+                except ValueError:
+                    errors[CONF_POWER_SENSOR] = "sensor_not_numeric"
+
+            if not errors:
+                await self.async_set_unique_id(entity_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
+                    title=entity_id,
                     data=user_input,
                 )
 
-        integration = async_get_loaded_integration(self.hass, DOMAIN)
-        assert integration.documentation is not None, (  # noqa: S101
-            "Integration documentation URL is not set in manifest.json"
-        )
-
         return self.async_show_form(
             step_id="user",
-            description_placeholders={
-                "documentation_url": integration.documentation,
-            },
             data_schema=vol.Schema(
                 {
+                    vol.Required(CONF_POWER_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor"),
+                    ),
                     vol.Required(
-                        CONF_USERNAME,
-                        default=(user_input or {}).get(CONF_USERNAME, vol.UNDEFINED),
-                    ): selector.TextSelector(
-                        selector.TextSelectorConfig(
-                            type=selector.TextSelectorType.TEXT,
+                        CONF_START_THRESHOLD,
+                        default=(user_input or {}).get(
+                            CONF_START_THRESHOLD, DEFAULT_START_THRESHOLD
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=10000,
+                            step=0.5,
+                            unit_of_measurement="W",
+                            mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
-                    vol.Required(CONF_PASSWORD): selector.TextSelector(
-                        selector.TextSelectorConfig(
-                            type=selector.TextSelectorType.PASSWORD,
+                    vol.Required(
+                        CONF_IDLE_THRESHOLD,
+                        default=(user_input or {}).get(
+                            CONF_IDLE_THRESHOLD, DEFAULT_IDLE_THRESHOLD
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=10000,
+                            step=0.5,
+                            unit_of_measurement="W",
+                            mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
-                },
+                    vol.Required(
+                        CONF_IDLE_TIMEOUT,
+                        default=(user_input or {}).get(
+                            CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=60,
+                            step=1,
+                            unit_of_measurement="min",
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                }
             ),
-            errors=_errors,
+            errors=errors,
         )
-
-    async def _test_credentials(self, username: str, password: str) -> None:
-        """Validate credentials."""
-        client = IntegrationBlueprintApiClient(
-            username=username,
-            password=password,
-            session=async_create_clientsession(self.hass),
-        )
-        await client.async_get_data()

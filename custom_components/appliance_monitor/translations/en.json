@@ -2,20 +2,21 @@
     "config": {
         "step": {
             "user": {
-                "description": "If you need help with the configuration have a look here: {documentation_url}",
                 "data": {
-                    "username": "Username",
-                    "password": "Password"
+                    "power_sensor": "Power sensor",
+                    "start_threshold": "Start threshold (W)",
+                    "idle_threshold": "Idle threshold (W)",
+                    "idle_timeout": "Idle timeout (min)"
                 }
             }
         },
         "error": {
-            "auth": "Username/Password is wrong.",
-            "connection": "Unable to connect to the server.",
+            "sensor_not_found": "The selected sensor entity was not found.",
+            "sensor_not_numeric": "The selected sensor does not report a numeric value.",
             "unknown": "Unknown error occurred."
         },
         "abort": {
-            "already_configured": "This entry is already configured."
+            "already_configured": "This power sensor is already configured."
         }
     }
 }
