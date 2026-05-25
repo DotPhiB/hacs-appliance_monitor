@@ -11,8 +11,12 @@ from homeassistant.util.dt import utcnow
 from .const import (
     CONF_IDLE_THRESHOLD,
     CONF_IDLE_TIMEOUT,
+    CONF_PAUSE_DELAY,
     CONF_POWER_SENSOR,
+    CONF_START_DELAY,
     CONF_START_THRESHOLD,
+    DEFAULT_PAUSE_DELAY,
+    DEFAULT_START_DELAY,
     LOGGER,
 )
 from .state_machine import ApplianceStateMachine
@@ -42,9 +46,18 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.config_entry = config_entry
         self._state_machine = ApplianceStateMachine(
-            start_threshold=config_entry.data[CONF_START_THRESHOLD],
-            idle_threshold=config_entry.data[CONF_IDLE_THRESHOLD],
-            idle_timeout_seconds=config_entry.data[CONF_IDLE_TIMEOUT] * 60,
+            start_threshold=self._conf(CONF_START_THRESHOLD),
+            idle_threshold=self._conf(CONF_IDLE_THRESHOLD),
+            idle_timeout_seconds=self._conf(CONF_IDLE_TIMEOUT) * 60,
+            start_delay_seconds=self._conf(CONF_START_DELAY, DEFAULT_START_DELAY),
+            pause_delay_seconds=self._conf(CONF_PAUSE_DELAY, DEFAULT_PAUSE_DELAY),
+        )
+
+    def _conf(self, key: str, default: Any = None) -> Any:
+        """Return a config value from options, falling back to data then default."""
+        return self.config_entry.options.get(
+            key,
+            self.config_entry.data.get(key, default),
         )
 
     async def _async_update_data(self) -> dict[str, Any]:

@@ -10,7 +10,11 @@ CONF_POWER_SENSOR = "power_sensor"
 CONF_START_THRESHOLD = "start_threshold"
 CONF_IDLE_THRESHOLD = "idle_threshold"
 CONF_IDLE_TIMEOUT = "idle_timeout"
+CONF_START_DELAY = "start_delay"
+CONF_PAUSE_DELAY = "pause_delay"
 
 DEFAULT_START_THRESHOLD: int = 10
 DEFAULT_IDLE_THRESHOLD: int = 3
 DEFAULT_IDLE_TIMEOUT: int = 5
+DEFAULT_START_DELAY: int = 0
+DEFAULT_PAUSE_DELAY: int = 0

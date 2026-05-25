@@ -1,46 +1,110 @@
-# Notice
+# Appliance Monitor
 
-The component and platforms in this repository are not meant to be used by a
-user, but as a "blueprint" that custom component developers can build
-upon, to make more awesome stuff.
+A Home Assistant custom integration that monitors appliance power consumption and automatically detects when an appliance is running, paused, or finished with a cycle.
 
-HAVE FUN! 😎
+Designed for washing machines, dishwashers, dryers, and any appliance with a measurable power draw pattern.
 
-## Why?
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-This is simple, by having custom_components look (README + structure) the same
-it is easier for developers to help each other and for users to start using them.
+---
 
-If you are a developer and you want to add things to this "blueprint" that you think more
-developers will have use for, please open a PR to add it :)
+> **A note on how this was built:** I'm not a Python developer. This integration was built with AI assistance — not by blindly accepting generated code, but by understanding the decisions and iterating deliberately. I've done my best to follow Home Assistant conventions and Python best practices, but if something doesn't meet your expectations as an experienced developer, I'd genuinely welcome the feedback. Issues and PRs are open.
 
-## What?
+---
 
-This repository contains multiple files, here is a overview:
+## Features
 
-File | Purpose | Documentation
--- | -- | --
-`.devcontainer.json` | Used for development/testing with Visual Studio Code. | [Documentation](https://code.visualstudio.com/docs/remote/containers)
-`.github/ISSUE_TEMPLATE/*.yml` | Templates for the issue tracker | [Documentation](https://help.github.com/en/github/building-a-strong-community/configuring-issue-templates-for-your-repository)
-`custom_components/appliance_monitor/*` | Integration files, this is where everything happens. | [Documentation](https://developers.home-assistant.io/docs/creating_component_index)
-`CONTRIBUTING.md` | Guidelines on how to contribute. | [Documentation](https://help.github.com/en/github/building-a-strong-community/setting-guidelines-for-repository-contributors)
-`LICENSE` | The license file for the project. | [Documentation](https://help.github.com/en/github/creating-cloning-and-archiving-repositories/licensing-a-repository)
-`README.md` | The file you are reading now, should contain info about the integration, installation and configuration instructions. | [Documentation](https://help.github.com/en/github/writing-on-github/basic-writing-and-formatting-syntax)
-`requirements.txt` | Python packages used for development/lint/testing this integration. | [Documentation](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
+- Detects **running**, **paused**, and **finished** states from a single power sensor
+- Exposes state as HA binary sensors and sensors — ready for automations and dashboards
+- Handles temporary idle periods mid-cycle (spin-pause, dishwasher drying phase, etc.)
+- Configurable start and pause delays (hysteresis) to filter brief power spikes and mid-cycle dips
+- All thresholds and timeouts are adjustable post-setup via the integration's options
 
-## How?
+---
 
-1. Create a new repository in GitHub, using this repository as a template by clicking the "Use this template" button in the GitHub UI.
-1. Open your new repository in Visual Studio Code devcontainer (Preferably with the "`Dev Containers: Clone Repository in Named Container Volume...`" option).
-1. Rename all instances of the `appliance_monitor` to `custom_components/<your_integration_domain>` (e.g. `custom_components/awesome_integration`).
-1. Rename all instances of the `Integration Blueprint` to `<Your Integration Name>` (e.g. `Awesome Integration`).
-1. Run the `scripts/develop` to start HA and test out your new integration.
+## Installation
 
-## Next steps
+### HACS (recommended)
 
-These are some next steps you may want to look into:
-- Add tests to your integration, [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) can help you get started.
-- Add brand images (logo/icon).
-- Create your first release.
-- Share your integration on the [Home Assistant Forum](https://community.home-assistant.io/).
-- Submit your integration to [HACS](https://hacs.xyz/docs/publish/start).
+1. Open HACS in your Home Assistant instance.
+2. Go to **Integrations** → three-dot menu → **Custom repositories**.
+3. Add `https://github.com/dotphib/appliance_monitor` as an **Integration**.
+4. Search for **Appliance Monitor** and install it.
+5. Restart Home Assistant.
+
+### Manual
+
+Copy `custom_components/appliance_monitor/` into your HA `config/custom_components/` directory and restart Home Assistant.
+
+---
+
+## Configuration
+
+Go to **Settings → Devices & Services → Add Integration** and search for **Appliance Monitor**.
+
+| Field | Description | Default |
+|---|---|---|
+| Power sensor | HA sensor entity reporting live power in watts | — |
+| Start threshold (W) | Power above this level means the appliance has started | 10 W |
+| Start delay (s) | Seconds power must stay above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
+| Idle threshold (W) | Power below this level means the appliance is idle or paused | 3 W |
+| Pause delay (s) | Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle dips. | 0 s |
+| Idle timeout (min) | Minutes of sustained low power (after the pause delay) before a cycle is marked finished | 5 min |
+
+All fields except the power sensor can be changed at any time via **Settings → Devices & Services → Appliance Monitor → Configure**.
+
+---
+
+## Entities
+
+Each configured appliance exposes the following entities:
+
+### Binary sensors
+
+| Entity | On when |
+|---|---|
+| `binary_sensor.<name>_running` | Appliance is actively running |
+| `binary_sensor.<name>_finished` | Last cycle has finished (resets when a new cycle starts) |
+
+### Sensors
+
+| Entity | Description |
+|---|---|
+| `sensor.<name>_state` | Current state: `idle`, `running`, `paused`, or `finished` |
+| `sensor.<name>_runtime` | Accumulated runtime of the current cycle in seconds |
+
+---
+
+## State machine
+
+```
+         power > start_threshold
+IDLE ─────────────────────────────► RUNNING
+ ▲                                   │    ▲
+ │                          power <  │    │ power >
+ │                       idle_thresh │    │ start_thresh
+ │                                   ▼    │
+ │              timeout          PAUSED ──┘
+ │           exceeded
+FINISHED ◄──────────────────────────┘
+   │
+   └── power > start_threshold ──► RUNNING (new cycle)
+```
+
+- **IDLE → RUNNING**: power exceeds the start threshold (optionally for `start_delay` seconds continuously).
+- **RUNNING → PAUSED**: power stays below the idle threshold for `pause_delay` seconds continuously.
+- **PAUSED → RUNNING**: power recovers above the start threshold before the timeout expires.
+- **PAUSED → FINISHED**: power stays low for longer than the idle timeout.
+- **FINISHED → RUNNING**: a new power spike starts a fresh cycle.
+
+---
+
+## Development
+
+```bash
+scripts/setup      # install dependencies
+scripts/develop    # start Home Assistant at localhost:8123
+scripts/lint       # ruff format + ruff check --fix
+```
+
+The devcontainer (`.devcontainer.json`) uses Python 3.14 and runs `scripts/setup` automatically on creation.
