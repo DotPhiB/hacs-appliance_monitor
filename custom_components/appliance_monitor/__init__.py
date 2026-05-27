@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
-from homeassistant.loader import async_get_loaded_integration
 
 from .coordinator import ApplianceMonitorCoordinator
 from .data import ApplianceMonitorData
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
 ]
 
 
@@ -32,10 +32,7 @@ async def async_setup_entry(
 ) -> bool:
     """Set up this integration using UI."""
     coordinator = ApplianceMonitorCoordinator(hass=hass, config_entry=entry)
-    entry.runtime_data = ApplianceMonitorData(
-        integration=async_get_loaded_integration(hass, entry.domain),
-        coordinator=coordinator,
-    )
+    entry.runtime_data = ApplianceMonitorData(coordinator=coordinator)
 
     await coordinator.async_config_entry_first_refresh()
 

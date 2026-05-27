@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
-    from homeassistant.loader import Integration
 
     from .coordinator import ApplianceMonitorCoordinator
 
@@ -20,4 +19,3 @@ class ApplianceMonitorData:
     """Runtime data for the Appliance Monitor integration."""
 
     coordinator: ApplianceMonitorCoordinator
-    integration: Integration

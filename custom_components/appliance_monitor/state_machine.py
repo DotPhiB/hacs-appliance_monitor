@@ -102,6 +102,15 @@ class ApplianceStateMachine:
         else:
             self._above_threshold_since = None
 
+    def reset(self) -> None:
+        """Force the state machine back to IDLE, clearing all in-progress timers."""
+        self._state = ApplianceState.IDLE
+        self._pause_start = None
+        self._above_threshold_since = None
+        self._below_idle_since = None
+        self._runtime_seconds = 0.0
+        self._last_update = None
+
     @property
     def state(self) -> ApplianceState:
         """Return current state."""

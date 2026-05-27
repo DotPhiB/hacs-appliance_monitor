@@ -84,3 +84,16 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "runtime": self._state_machine.runtime_seconds,
             "power": power,
         }
+
+    def reset(self) -> None:
+        """Reset the appliance state to IDLE and trigger a coordinator refresh."""
+        self._state_machine.reset()
+        self.async_set_updated_data(
+            {
+                "state": str(self._state_machine.state),
+                "running": self._state_machine.is_running,
+                "finished": self._state_machine.is_finished,
+                "runtime": self._state_machine.runtime_seconds,
+                "power": self.data.get("power", 0.0) if self.data else 0.0,
+            }
+        )

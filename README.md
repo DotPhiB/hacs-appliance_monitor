@@ -32,7 +32,7 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 
 1. Open HACS in your Home Assistant instance.
 2. Go to **Integrations** → three-dot menu → **Custom repositories**.
-3. Add `https://github.com/dotphib/appliance_monitor` as an **Integration**.
+3. Add `https://github.com/DotPhiB/hacs-appliance_monitor` as an **Integration**.
 4. Search for **Appliance Monitor** and install it.
 5. Restart Home Assistant.
 
@@ -68,7 +68,7 @@ Each configured appliance exposes the following entities:
 | Entity | On when |
 |---|---|
 | `binary_sensor.<name>_running` | Appliance is actively running |
-| `binary_sensor.<name>_finished` | Last cycle has finished (resets when a new cycle starts) |
+| `binary_sensor.<name>_finished` | Last cycle has finished (resets when a new cycle starts or the Reset button is pressed) |
 
 ### Sensors
 
@@ -76,6 +76,12 @@ Each configured appliance exposes the following entities:
 |---|---|
 | `sensor.<name>_state` | Current state: `idle`, `running`, `paused`, or `finished` |
 | `sensor.<name>_runtime` | Accumulated runtime of the current cycle in seconds |
+
+### Buttons
+
+| Entity | Action |
+|---|---|
+| `button.<name>_reset` | Reset the appliance state to idle (clears finished notification) |
 
 ---
 

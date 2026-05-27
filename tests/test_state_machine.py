@@ -393,6 +393,58 @@ class TestPauseHysteresis:
         assert delayed_sm.runtime_seconds == pytest.approx(40.0)
 
 
+class TestReset:
+    """reset() forces the machine back to IDLE regardless of current state."""
+
+    def test_reset_from_running(self, sm: ApplianceStateMachine) -> None:
+        """Reset while RUNNING returns the machine to IDLE."""
+        sm.update(ABOVE_START, _t(0))
+        assert sm.state is ApplianceState.RUNNING
+        sm.reset()
+        assert sm.state is ApplianceState.IDLE
+
+    def test_reset_from_paused(self, sm: ApplianceStateMachine) -> None:
+        """Reset while PAUSED returns the machine to IDLE."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.reset()
+        assert sm.state is ApplianceState.IDLE
+
+    def test_reset_from_finished(self, sm: ApplianceStateMachine) -> None:
+        """Reset while FINISHED returns the machine to IDLE."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.state is ApplianceState.FINISHED
+        sm.reset()
+        assert sm.state is ApplianceState.IDLE
+
+    def test_reset_clears_runtime(self, sm: ApplianceStateMachine) -> None:
+        """Reset zeroes the accumulated runtime."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(ABOVE_START, _t(60))
+        sm.reset()
+        assert sm.runtime_seconds == 0.0
+
+    def test_reset_clears_is_finished(self, sm: ApplianceStateMachine) -> None:
+        """is_finished is False immediately after a reset."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        sm.reset()
+        assert not sm.is_finished
+
+    def test_reset_allows_normal_cycle_after(self, sm: ApplianceStateMachine) -> None:
+        """A normal cycle can start immediately after a reset."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        sm.reset()
+        sm.update(ABOVE_START, _t(200))
+        assert sm.state is ApplianceState.RUNNING
+        assert sm.runtime_seconds == 0.0
+
+
 class TestFullCycle:
     """End-to-end scenarios covering the full state graph."""
 

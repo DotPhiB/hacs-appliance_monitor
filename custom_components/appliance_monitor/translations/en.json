@@ -1,4 +1,11 @@
 {
+    "entity": {
+        "button": {
+            "reset": {
+                "name": "Reset"
+            }
+        }
+    },
     "config": {
         "step": {
             "user": {
