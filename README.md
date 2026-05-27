@@ -5,6 +5,10 @@ A Home Assistant custom integration that monitors appliance power consumption an
 Designed for washing machines, dishwashers, dryers, and any appliance with a measurable power draw pattern.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+[![Lint](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/lint.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/lint.yml)
+[![Tests](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/tests.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/tests.yml)
+[![Validate](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/validate.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/DotPhiB/hacs-appliance_monitor)](LICENSE)
 
 ---
 
