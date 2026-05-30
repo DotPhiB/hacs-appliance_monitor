@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
+_ACTIVE_STATES = frozenset(["running", "paused"])
+
 
 class ApplianceState(StrEnum):
     """Possible states of a monitored appliance."""
@@ -39,14 +41,18 @@ class ApplianceStateMachine:
         self._pause_start: datetime | None = None
         self._above_threshold_since: datetime | None = None
         self._below_idle_since: datetime | None = None
-        self._runtime_seconds: float = 0.0
+        self._cycle_start: datetime | None = None
+        self._cycle_duration_seconds: float = 0.0
+        self._total_operating_seconds: float = 0.0
         self._last_update: datetime | None = None
         self._cycle_count: int = 0
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
-        if self._last_update is not None and self._state is ApplianceState.RUNNING:
-            self._runtime_seconds += (now - self._last_update).total_seconds()
+        if self._last_update is not None and self._state in _ACTIVE_STATES:
+            self._total_operating_seconds += (now - self._last_update).total_seconds()
+        if self._cycle_start is not None and self._state in _ACTIVE_STATES:
+            self._cycle_duration_seconds = (now - self._cycle_start).total_seconds()
         self._last_update = now
 
         if self._state is ApplianceState.IDLE:
@@ -65,7 +71,8 @@ class ApplianceStateMachine:
         elapsed = (now - self._above_threshold_since).total_seconds()
         if elapsed >= self._start_delay_seconds:
             self._state = ApplianceState.RUNNING
-            self._runtime_seconds = 0.0
+            self._cycle_start = now
+            self._cycle_duration_seconds = 0.0
             self._pause_start = None
             self._above_threshold_since = None
 
@@ -105,16 +112,17 @@ class ApplianceStateMachine:
             self._above_threshold_since = None
 
     def reset(self) -> None:
-        """Force the state machine back to IDLE, clearing all in-progress timers."""
+        """Force the state machine back to IDLE; cycle count and total operating time are preserved."""
         self._state = ApplianceState.IDLE
         self._pause_start = None
         self._above_threshold_since = None
         self._below_idle_since = None
-        self._runtime_seconds = 0.0
+        self._cycle_start = None
+        self._cycle_duration_seconds = 0.0
         self._last_update = None
 
     def reset_cycle_count(self) -> None:
-        """Zero the cycle counter without affecting the current state."""
+        """Zero the cycle counter without affecting state or operating time."""
         self._cycle_count = 0
 
     @property
@@ -133,11 +141,21 @@ class ApplianceStateMachine:
         return self._state is ApplianceState.FINISHED
 
     @property
-    def runtime_seconds(self) -> float:
-        """Return accumulated runtime in seconds for the current cycle."""
-        return self._runtime_seconds
+    def cycle_start(self) -> datetime | None:
+        """Return when the current or last cycle started, or None if never run."""
+        return self._cycle_start
+
+    @property
+    def cycle_duration_seconds(self) -> float:
+        """Return wall-clock cycle duration in seconds; frozen at FINISHED, zero before first cycle."""
+        return self._cycle_duration_seconds
+
+    @property
+    def total_operating_seconds(self) -> float:
+        """Return lifetime seconds spent in RUNNING or PAUSED; never reset."""
+        return self._total_operating_seconds
 
     @property
     def cycle_count(self) -> int:
-        """Return the number of completed cycles since last reset."""
+        """Return the number of completed cycles since last counter reset."""
         return self._cycle_count

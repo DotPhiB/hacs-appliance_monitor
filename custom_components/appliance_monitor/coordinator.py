@@ -84,7 +84,9 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "state": str(self._state_machine.state),
             "running": self._state_machine.is_running,
             "finished": self._state_machine.is_finished,
-            "runtime": self._state_machine.runtime_seconds,
+            "cycle_start": self._state_machine.cycle_start,
+            "cycle_duration": self._state_machine.cycle_duration_seconds,
+            "total_operating_time": self._state_machine.total_operating_seconds,
             "cycle_count": self._state_machine.cycle_count,
             "power": power if power is not None else (self.data.get("power", 0.0) if self.data else 0.0),
         }

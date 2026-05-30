@@ -20,11 +20,17 @@
             "state": {
                 "name": "State"
             },
-            "runtime": {
-                "name": "Runtime"
-            },
             "cycle_count": {
                 "name": "Cycle Count"
+            },
+            "cycle_start": {
+                "name": "Cycle Start"
+            },
+            "cycle_duration": {
+                "name": "Cycle Duration"
+            },
+            "total_operating_time": {
+                "name": "Total Operating Time"
             }
         }
     },
