@@ -92,7 +92,7 @@ class ApplianceStateMachine:
             if self._below_idle_since is None:
                 self._below_idle_since = now
             elapsed = (now - self._below_idle_since).total_seconds()
-            if elapsed > self._idle_timeout_seconds:
+            if elapsed >= self._idle_timeout_seconds:
                 self._state = ApplianceState.FINISHED
                 self._cycle_count += 1
                 self._below_idle_since = None

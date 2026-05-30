@@ -130,16 +130,16 @@ class TestRunningTransitions:
         """A power dip below idle for less than idle_timeout keeps state RUNNING."""
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
-        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS))  # exactly at the boundary
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS - 1))  # just before the boundary
         assert sm.state is ApplianceState.RUNNING
 
-    def test_transitions_to_finished_after_idle_timeout(
+    def test_transitions_to_finished_at_idle_timeout(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """Power below idle for longer than idle_timeout → FINISHED."""
+        """Power below idle for at least idle_timeout → FINISHED (boundary inclusive)."""
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
-        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS))
         assert sm.state is ApplianceState.FINISHED
 
     def test_recovery_during_idle_countdown_keeps_running(
