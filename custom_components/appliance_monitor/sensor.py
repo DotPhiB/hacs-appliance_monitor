@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfTime
 
 from .entity import ApplianceMonitorEntity
 
@@ -32,6 +32,7 @@ ENTITY_DESCRIPTIONS = (
         icon="mdi:timer",
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="cycle_count",
