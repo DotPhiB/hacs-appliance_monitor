@@ -130,9 +130,10 @@ Note: this only catches sources that explicitly report unavailable. A source tha
 ## Development
 
 ```bash
-scripts/setup      # install dependencies
+scripts/setup      # install dependencies (incl. pytest)
 scripts/develop    # start Home Assistant at localhost:8123
 scripts/lint       # ruff format + ruff check --fix
+scripts/test       # run the test suite (forwards args, e.g. `scripts/test -k disconnect`)
 ```
 
 The devcontainer (`.devcontainer.json`) uses Python 3.14 and runs `scripts/setup` automatically on creation.
