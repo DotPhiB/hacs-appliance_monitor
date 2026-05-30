@@ -71,10 +71,12 @@ class TestInitialState:
 class TestIdleTransitions:
     """Transitions out of IDLE."""
 
-    def test_stays_idle_at_threshold(self, sm: ApplianceStateMachine) -> None:
-        """Power at start_threshold does not leave IDLE (strictly greater-than)."""
+    def test_transitions_to_running_at_threshold(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Power exactly at start_threshold triggers IDLE→RUNNING (inclusive)."""
         sm.update(START_THRESHOLD, _t(0))
-        assert sm.state is ApplianceState.IDLE
+        assert sm.state is ApplianceState.RUNNING
 
     def test_stays_idle_below_threshold(self, sm: ApplianceStateMachine) -> None:
         """Power below start_threshold keeps state IDLE."""
@@ -180,12 +182,12 @@ class TestFinishedTransitions:
         sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
         return sm
 
-    def test_stays_finished_at_threshold(
+    def test_starts_new_cycle_at_threshold(
         self, finished_sm: ApplianceStateMachine
     ) -> None:
-        """Power exactly at start_threshold does not leave FINISHED."""
+        """Power exactly at start_threshold starts a new cycle from FINISHED (inclusive)."""
         finished_sm.update(START_THRESHOLD, _t(200))
-        assert finished_sm.state is ApplianceState.FINISHED
+        assert finished_sm.state is ApplianceState.RUNNING
 
     def test_stays_finished_below_threshold(
         self, finished_sm: ApplianceStateMachine
@@ -553,6 +555,66 @@ class TestEnergy:
         total_before = sm.total_energy_kwh
         sm.reset()
         assert sm.total_energy_kwh == pytest.approx(total_before)
+
+
+class TestRestoreSnapshot:
+    """restore_snapshot() rehydrates state and totals from persisted storage."""
+
+    def test_defaults_when_nothing_provided(self, sm: ApplianceStateMachine) -> None:
+        """restore_snapshot() with no args leaves the machine in pristine IDLE."""
+        sm.restore_snapshot()
+        assert sm.state is ApplianceState.IDLE
+        assert sm.cycle_count == 0
+        assert sm.cycle_start is None
+        assert sm.cycle_duration_seconds == 0.0
+        assert sm.cycle_energy_kwh == 0.0
+        assert sm.total_operating_seconds == 0.0
+        assert sm.total_energy_kwh == 0.0
+
+    def test_restores_running_state(self, sm: ApplianceStateMachine) -> None:
+        """Restoring state=RUNNING resumes the cycle so FINISHED detection works."""
+        sm.restore_snapshot(
+            state=ApplianceState.RUNNING,
+            cycle_start=_t(0),
+            cycle_duration_seconds=600.0,
+            cycle_energy_kwh=0.5,
+            cycle_count=3,
+        )
+        assert sm.state is ApplianceState.RUNNING
+        assert sm.cycle_start == _t(0)
+        assert sm.cycle_duration_seconds == 600.0
+        assert sm.cycle_energy_kwh == 0.5
+
+    def test_restored_running_can_reach_finished(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """After restoring RUNNING with a mid-cycle low draw, FINISHED still fires."""
+        sm.restore_snapshot(
+            state=ApplianceState.RUNNING,
+            cycle_start=_t(0),
+            cycle_duration_seconds=600.0,
+            cycle_count=2,
+        )
+        # First tick: below idle. Sets _below_idle_since but no integration yet.
+        sm.update(BELOW_IDLE, _t(10_000))
+        # Second tick: still below idle, past timeout.
+        sm.update(BELOW_IDLE, _t(10_000 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.state is ApplianceState.FINISHED
+        assert sm.cycle_count == 3  # incremented on FINISHED
+
+    def test_first_tick_after_restore_does_not_inflate_totals(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """First tick after restore skips integration — downtime gap not counted."""
+        sm.restore_snapshot(
+            state=ApplianceState.RUNNING,
+            cycle_start=_t(0),
+            total_operating_seconds=500.0,
+            total_energy_kwh=1.0,
+        )
+        sm.update(ABOVE_START, _t(99_999))  # large gap; should NOT integrate
+        assert sm.total_operating_seconds == 500.0
+        assert sm.total_energy_kwh == 1.0
 
 
 class TestFullCycle:

@@ -50,7 +50,7 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 |---|---|---|
 | Power sensor | HA sensor entity reporting live power in watts | — |
 | Start threshold (W) | Power above this level means the appliance has started | 10 W |
-| Start delay (s) | Seconds power must stay above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
+| Start delay (s) | Seconds power must stay at or above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
 | Idle threshold (W) | Power below this level signals the appliance is idle or about to finish | 3 W |
 | Idle timeout (s) | Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so mid-cycle low-draw phases keep the appliance RUNNING. Set to 0 for an instant transition. | 30 s |
 
@@ -104,7 +104,7 @@ IDLE ─────────────────────────
                                        └── power > start_threshold ──► RUNNING (new cycle)
 ```
 
-- **IDLE → RUNNING**: power exceeds the start threshold (optionally for `start_delay` seconds continuously).
+- **IDLE → RUNNING**: power reaches the start threshold (optionally for `start_delay` seconds continuously).
 - **RUNNING → RUNNING**: brief dips below the idle threshold keep state RUNNING — common during intermediate phases (washer between rinses, dishwasher soaking, etc.). The idle countdown restarts on each recovery.
 - **RUNNING → FINISHED**: power stays below the idle threshold continuously for longer than `idle_timeout`.
 - **FINISHED → RUNNING**: a new power spike starts a fresh cycle.

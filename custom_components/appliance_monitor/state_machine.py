@@ -82,7 +82,7 @@ class ApplianceStateMachine:
             self._above_threshold_since = None
 
     def _handle_idle(self, power: float, now: datetime) -> None:
-        if power > self._start_threshold:
+        if power >= self._start_threshold:
             self._try_start_running(now)
         else:
             self._above_threshold_since = None
@@ -100,7 +100,7 @@ class ApplianceStateMachine:
             self._below_idle_since = None
 
     def _handle_finished(self, power: float, now: datetime) -> None:
-        if power > self._start_threshold:
+        if power >= self._start_threshold:
             self._try_start_running(now)
         else:
             self._above_threshold_since = None
@@ -122,6 +122,26 @@ class ApplianceStateMachine:
     def reset_cycle_count(self) -> None:
         """Zero the cycle counter without affecting state or operating time."""
         self._cycle_count = 0
+
+    def restore_snapshot(
+        self,
+        *,
+        cycle_count: int = 0,
+        total_operating_seconds: float = 0.0,
+        total_energy_kwh: float = 0.0,
+        state: ApplianceState = ApplianceState.IDLE,
+        cycle_start: datetime | None = None,
+        cycle_duration_seconds: float = 0.0,
+        cycle_energy_kwh: float = 0.0,
+    ) -> None:
+        """Restore state machine fields from persisted storage."""
+        self._cycle_count = cycle_count
+        self._total_operating_seconds = total_operating_seconds
+        self._total_energy_kwh = total_energy_kwh
+        self._state = state
+        self._cycle_start = cycle_start
+        self._cycle_duration_seconds = cycle_duration_seconds
+        self._cycle_energy_kwh = cycle_energy_kwh
 
     @property
     def state(self) -> ApplianceState:

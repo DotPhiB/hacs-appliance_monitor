@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.storage import Store
 
-from .const import CONF_POWER_SENSOR
-from .coordinator import ApplianceMonitorCoordinator
+from .const import CONF_POWER_SENSOR, DOMAIN
+from .coordinator import STORAGE_VERSION, ApplianceMonitorCoordinator
 from .data import ApplianceMonitorData
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ async def async_setup_entry(
     coordinator = ApplianceMonitorCoordinator(hass=hass, config_entry=entry)
     entry.runtime_data = ApplianceMonitorData(coordinator=coordinator)
 
+    await coordinator.async_load_persisted_snapshot()
     await coordinator.async_config_entry_first_refresh()
 
     async def _handle_power_change(
@@ -64,6 +66,15 @@ async def async_unload_entry(
 ) -> bool:
     """Handle removal of an entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(
+    hass: HomeAssistant,
+    entry: ApplianceMonitorConfigEntry,
+) -> None:
+    """Delete persisted totals when the integration entry is removed."""
+    store: Store[dict] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+    await store.async_remove()
 
 
 async def async_reload_entry(
