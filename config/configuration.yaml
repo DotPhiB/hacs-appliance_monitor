@@ -10,3 +10,26 @@ logger:
   default: info
   logs:
     custom_components.appliance_monitor: debug
+
+# Dev-only: manual power source for driving the state machine from the UI.
+# Move the slider to simulate an appliance powering on / pausing / finishing.
+input_number:
+  test_power:
+    name: Test Power
+    min: 0
+    max: 3000
+    step: 0.5
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:flash
+
+# Wraps the input_number as a proper power sensor so the appliance_monitor
+# config flow accepts it without the non-power-sensor warning.
+template:
+  - sensor:
+      - name: Test Power Sensor
+        unique_id: test_power_sensor
+        state: "{{ states('input_number.test_power') | float(0) }}"
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
