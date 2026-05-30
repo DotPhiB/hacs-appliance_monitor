@@ -649,6 +649,125 @@ class TestTotalOperatingTime:
         assert sm.total_operating_seconds == pytest.approx(total_after_first + 30.0)
 
 
+class TestEnergy:
+    """cycle_energy_kwh and total_energy_kwh integrate power over time."""
+
+    # 3600 W for 1 hour = 3.6 kWh; for 1 s = 1 Wh = 0.001 kWh
+    POWER_W = 3600.0
+
+    def test_initial_zero(self, sm: ApplianceStateMachine) -> None:
+        """Both energy counters start at zero."""
+        assert sm.cycle_energy_kwh == 0.0
+        assert sm.total_energy_kwh == 0.0
+
+    def test_no_integration_first_tick(self, sm: ApplianceStateMachine) -> None:
+        """First update never integrates (no prior reading to integrate from)."""
+        sm.update(self.POWER_W, _t(0))
+        assert sm.cycle_energy_kwh == 0.0
+        assert sm.total_energy_kwh == 0.0
+
+    def test_constant_power_running(self, sm: ApplianceStateMachine) -> None:
+        """Constant 3600 W for 10 s while RUNNING → 0.01 kWh (10 Wh)."""
+        sm.update(self.POWER_W, _t(0))  # → RUNNING, no integration this tick
+        sm.update(self.POWER_W, _t(10))  # 10 s of 3600 W = 36000 Ws = 10 Wh
+        assert sm.cycle_energy_kwh == pytest.approx(0.01)
+        assert sm.total_energy_kwh == pytest.approx(0.01)
+
+    def test_trapezoidal_with_varying_power(self, sm: ApplianceStateMachine) -> None:
+        """Trapezoidal: average of (1000+2000)/2 = 1500 W for 10 s = 4.166e-3 kWh."""
+        sm.update(1000.0, _t(0))
+        sm.update(2000.0, _t(10))
+        # 1500 W * 10 s = 15000 Ws = 4.1667 Wh = 0.0041667 kWh
+        assert sm.cycle_energy_kwh == pytest.approx(15000 / 3_600_000.0)
+
+    def test_accumulates_during_paused(self, sm: ApplianceStateMachine) -> None:
+        """Energy integration also runs during PAUSED (low draw is still draw)."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(BELOW_IDLE, _t(10))  # → PAUSED, integrates 10 s of avg power
+        before = sm.cycle_energy_kwh
+        sm.update(BELOW_IDLE, _t(40))  # 30 s in PAUSED at ~BELOW_IDLE
+        assert sm.cycle_energy_kwh > before
+
+    def test_cycle_energy_does_not_integrate_while_idle(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """cycle_energy_kwh stays zero while in IDLE — cycle is not running."""
+        sm.update(BELOW_IDLE, _t(0))
+        sm.update(BELOW_IDLE, _t(3600))
+        assert sm.cycle_energy_kwh == 0.0
+
+    def test_total_energy_integrates_while_idle(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """total_energy_kwh accumulates standby/quiescent consumption during IDLE."""
+        sm.update(BELOW_IDLE, _t(0))
+        sm.update(BELOW_IDLE, _t(3600))  # 1h at BELOW_IDLE W
+        assert sm.total_energy_kwh == pytest.approx(BELOW_IDLE * 3600 / 3_600_000.0)
+
+    def test_cycle_energy_frozen_while_finished(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """cycle_energy_kwh does not change while in FINISHED state."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.state is ApplianceState.FINISHED
+        frozen_cycle = sm.cycle_energy_kwh
+        sm.update(BELOW_IDLE, _t(1000))
+        assert sm.cycle_energy_kwh == pytest.approx(frozen_cycle)
+
+    def test_total_energy_integrates_while_finished(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """total_energy_kwh keeps accumulating residual draw after FINISHED."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        total_at_finish = sm.total_energy_kwh
+        sm.update(BELOW_IDLE, _t(1000))
+        assert sm.total_energy_kwh > total_at_finish
+
+    def test_cycle_energy_resets_on_new_cycle(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """cycle_energy_kwh zeroes when a new cycle starts."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(self.POWER_W, _t(60))
+        sm.update(BELOW_IDLE, _t(70))
+        sm.update(BELOW_IDLE, _t(70 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.cycle_energy_kwh > 0.0
+        sm.update(self.POWER_W, _t(500))  # new cycle
+        assert sm.cycle_energy_kwh == 0.0
+
+    def test_total_energy_survives_new_cycle(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """total_energy_kwh accumulates across cycles, never resets."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(self.POWER_W, _t(60))
+        sm.update(BELOW_IDLE, _t(70))
+        sm.update(BELOW_IDLE, _t(70 + IDLE_TIMEOUT_SECS + 1))
+        first_total = sm.total_energy_kwh
+        sm.update(self.POWER_W, _t(500))
+        sm.update(self.POWER_W, _t(560))
+        assert sm.total_energy_kwh > first_total
+
+    def test_cycle_energy_cleared_by_reset(self, sm: ApplianceStateMachine) -> None:
+        """reset() zeroes cycle_energy."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(self.POWER_W, _t(60))
+        sm.reset()
+        assert sm.cycle_energy_kwh == 0.0
+
+    def test_total_energy_survives_reset(self, sm: ApplianceStateMachine) -> None:
+        """total_energy_kwh is preserved after reset()."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(self.POWER_W, _t(60))
+        total_before = sm.total_energy_kwh
+        sm.reset()
+        assert sm.total_energy_kwh == pytest.approx(total_before)
+
+
 class TestFullCycle:
     """End-to-end scenarios covering the full state graph."""
 

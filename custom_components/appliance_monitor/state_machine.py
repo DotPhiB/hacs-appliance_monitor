@@ -45,19 +45,28 @@ class ApplianceStateMachine:
         self._cycle_start: datetime | None = None
         self._cycle_duration_seconds: float = 0.0
         self._total_operating_seconds: float = 0.0
+        self._cycle_energy_kwh: float = 0.0
+        self._total_energy_kwh: float = 0.0
         self._last_update: datetime | None = None
+        self._last_power: float = 0.0
         self._cycle_count: int = 0
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
-        if self._state in _ACTIVE_STATES:
-            if self._last_update is not None:
-                self._total_operating_seconds += (
-                    now - self._last_update
-                ).total_seconds()
-            if self._cycle_start is not None:
-                self._cycle_duration_seconds = (now - self._cycle_start).total_seconds()
+        if self._last_update is not None:
+            dt_seconds = (now - self._last_update).total_seconds()
+            avg_power_w = (self._last_power + power) / 2.0
+            energy_kwh = avg_power_w * dt_seconds / 3_600_000.0
+            self._total_energy_kwh += energy_kwh
+            if self._state in _ACTIVE_STATES:
+                self._total_operating_seconds += dt_seconds
+                self._cycle_energy_kwh += energy_kwh
+                if self._cycle_start is not None:
+                    self._cycle_duration_seconds = (
+                        now - self._cycle_start
+                    ).total_seconds()
         self._last_update = now
+        self._last_power = power
 
         if self._state is ApplianceState.IDLE:
             self._handle_idle(power, now)
@@ -77,6 +86,7 @@ class ApplianceStateMachine:
             self._state = ApplianceState.RUNNING
             self._cycle_start = now
             self._cycle_duration_seconds = 0.0
+            self._cycle_energy_kwh = 0.0
             self._pause_start = None
             self._above_threshold_since = None
 
@@ -127,6 +137,7 @@ class ApplianceStateMachine:
         self._below_idle_since = None
         self._cycle_start = None
         self._cycle_duration_seconds = 0.0
+        self._cycle_energy_kwh = 0.0
         self._last_update = None
 
     def reset_cycle_count(self) -> None:
@@ -166,6 +177,20 @@ class ApplianceStateMachine:
     def total_operating_seconds(self) -> float:
         """Return lifetime seconds spent in RUNNING or PAUSED; never reset."""
         return self._total_operating_seconds
+
+    @property
+    def cycle_energy_kwh(self) -> float:
+        """
+        Return energy consumed during the current or last cycle in kWh.
+
+        Frozen at FINISHED, zero before first cycle and after reset.
+        """
+        return self._cycle_energy_kwh
+
+    @property
+    def total_energy_kwh(self) -> float:
+        """Return lifetime energy in kWh integrated from every power reading; never reset."""
+        return self._total_energy_kwh
 
     @property
     def cycle_count(self) -> int:

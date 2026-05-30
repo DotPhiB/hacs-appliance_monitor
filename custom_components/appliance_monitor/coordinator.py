@@ -88,7 +88,9 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "finished": self._state_machine.is_finished,
             "cycle_start": self._state_machine.cycle_start,
             "cycle_duration": self._state_machine.cycle_duration_seconds,
+            "cycle_energy": self._state_machine.cycle_energy_kwh,
             "total_operating_time": self._state_machine.total_operating_seconds,
+            "total_energy": self._state_machine.total_energy_kwh,
             "cycle_count": self._state_machine.cycle_count,
             "power": power,
         }

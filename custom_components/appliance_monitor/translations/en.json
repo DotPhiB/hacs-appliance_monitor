@@ -35,8 +35,14 @@
             "cycle_duration": {
                 "name": "Cycle Duration"
             },
+            "cycle_energy": {
+                "name": "Cycle Energy"
+            },
             "total_operating_time": {
                 "name": "Total Operating Time"
+            },
+            "total_energy": {
+                "name": "Total Energy"
             }
         }
     },

@@ -75,13 +75,19 @@ Each configured appliance exposes the following entities:
 | Entity | Description |
 |---|---|
 | `sensor.<name>_state` | Current state: `idle`, `running`, `paused`, or `finished` |
-| `sensor.<name>_runtime` | Accumulated runtime of the current cycle in seconds |
+| `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
+| `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds (frozen at FINISHED) |
+| `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
+| `sensor.<name>_cycle_start` _(diagnostic)_ | Timestamp when the current/last cycle started |
+| `sensor.<name>_total_operating_time` _(diagnostic)_ | Lifetime seconds in RUNNING or PAUSED — survives state resets |
+| `sensor.<name>_total_energy` | Lifetime energy in kWh — Energy Dashboard compatible |
 
 ### Buttons
 
 | Entity | Action |
 |---|---|
-| `button.<name>_reset` | Reset the appliance state to idle (clears finished notification) |
+| `button.<name>_reset_state` _(config)_ | Reset the appliance state to IDLE (clears finished notification; cycle count and totals preserved) |
+| `button.<name>_reset_cycle_count` _(config)_ | Zero the cycle counter without affecting state |
 
 ---
 
