@@ -52,7 +52,7 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(
                     min=0,
                     max=600,
-                    step=5,
+                    step=1,
                     unit_of_measurement="s",
                     mode=selector.NumberSelectorMode.BOX,
                 ),
@@ -76,7 +76,7 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(
                     min=0,
                     max=600,
-                    step=5,
+                    step=1,
                     unit_of_measurement="s",
                     mode=selector.NumberSelectorMode.BOX,
                 ),
@@ -86,10 +86,10 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1,
-                    max=60,
-                    step=1,
-                    unit_of_measurement="min",
+                    min=0,
+                    max=3600,
+                    step=30,
+                    unit_of_measurement="s",
                     mode=selector.NumberSelectorMode.BOX,
                 ),
             ),

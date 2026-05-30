@@ -42,13 +42,13 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass=hass,
             logger=LOGGER,
             name=f"appliance_monitor_{config_entry.entry_id}",
-            update_interval=timedelta(seconds=30),
+            update_interval=timedelta(seconds=10),
         )
         self.config_entry = config_entry
         self._state_machine = ApplianceStateMachine(
             start_threshold=self._conf(CONF_START_THRESHOLD),
             idle_threshold=self._conf(CONF_IDLE_THRESHOLD),
-            idle_timeout_seconds=self._conf(CONF_IDLE_TIMEOUT) * 60,
+            idle_timeout_seconds=self._conf(CONF_IDLE_TIMEOUT),
             start_delay_seconds=self._conf(CONF_START_DELAY, DEFAULT_START_DELAY),
             pause_delay_seconds=self._conf(CONF_PAUSE_DELAY, DEFAULT_PAUSE_DELAY),
         )

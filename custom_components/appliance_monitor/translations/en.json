@@ -49,14 +49,14 @@
                     "start_delay": "Start delay (s)",
                     "idle_threshold": "Idle threshold (W)",
                     "pause_delay": "Pause delay (s)",
-                    "idle_timeout": "Idle timeout (min)"
+                    "idle_timeout": "Idle timeout (s)"
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started.",
                     "start_delay": "Seconds power must stay above the start threshold before the cycle begins. Filters brief power spikes. Set to 0 to react immediately.",
                     "idle_threshold": "Power below this level signals the appliance is idle or paused.",
                     "pause_delay": "Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle power dips. Set to 0 to react immediately.",
-                    "idle_timeout": "Minutes of sustained low power (after the pause delay) before a cycle is marked as finished."
+                    "idle_timeout": "Seconds of sustained low power (after the pause delay) before a cycle is marked as finished. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
                 }
             },
             "confirm_non_power": {
@@ -81,14 +81,14 @@
                     "start_delay": "Start delay (s)",
                     "idle_threshold": "Idle threshold (W)",
                     "pause_delay": "Pause delay (s)",
-                    "idle_timeout": "Idle timeout (min)"
+                    "idle_timeout": "Idle timeout (s)"
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started.",
                     "start_delay": "Seconds power must stay above the start threshold before the cycle begins. Filters brief power spikes. Set to 0 to react immediately.",
                     "idle_threshold": "Power below this level signals the appliance is idle or paused.",
                     "pause_delay": "Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle power dips. Set to 0 to react immediately.",
-                    "idle_timeout": "Minutes of sustained low power (after the pause delay) before a cycle is marked as finished."
+                    "idle_timeout": "Seconds of sustained low power (after the pause delay) before a cycle is marked as finished. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
                 }
             }
         }

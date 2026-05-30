@@ -53,7 +53,7 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 | Start delay (s) | Seconds power must stay above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
 | Idle threshold (W) | Power below this level means the appliance is idle or paused | 3 W |
 | Pause delay (s) | Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle dips. | 0 s |
-| Idle timeout (min) | Minutes of sustained low power (after the pause delay) before a cycle is marked finished | 5 min |
+| Idle timeout (s) | Seconds of sustained low power (after the pause delay) before a cycle is marked finished. Set to 0 for an instant transition. | 30 s |
 
 All fields except the power sensor can be changed at any time via **Settings → Devices & Services → Appliance Monitor → Configure**.
 
