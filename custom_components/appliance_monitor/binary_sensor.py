@@ -22,12 +22,12 @@ if TYPE_CHECKING:
 ENTITY_DESCRIPTIONS = (
     BinarySensorEntityDescription(
         key="running",
-        name="Running",
+        translation_key="running",
         device_class=BinarySensorDeviceClass.RUNNING,
     ),
     BinarySensorEntityDescription(
         key="finished",
-        name="Finished",
+        translation_key="finished",
     ),
 )
 

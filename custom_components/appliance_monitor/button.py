@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
@@ -11,6 +10,8 @@ from homeassistant.const import EntityCategory
 from .entity import ApplianceMonitorEntity
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -21,7 +22,7 @@ _BUTTONS: tuple[tuple[ButtonEntityDescription, str], ...] = (
     (
         ButtonEntityDescription(
             key="reset_state",
-            name="Reset State",
+            translation_key="reset_state",
             icon="mdi:restart",
             entity_category=EntityCategory.CONFIG,
         ),
@@ -30,7 +31,7 @@ _BUTTONS: tuple[tuple[ButtonEntityDescription, str], ...] = (
     (
         ButtonEntityDescription(
             key="reset_cycle_count",
-            name="Reset Cycle Count",
+            translation_key="reset_cycle_count",
             icon="mdi:counter",
             entity_category=EntityCategory.CONFIG,
         ),

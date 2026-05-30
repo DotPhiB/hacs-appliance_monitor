@@ -13,8 +13,11 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory, UnitOfTime
 
 from .entity import ApplianceMonitorEntity
+from .state_machine import ApplianceState
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -24,24 +27,26 @@ if TYPE_CHECKING:
 ENTITY_DESCRIPTIONS = (
     SensorEntityDescription(
         key="state",
-        name="State",
+        translation_key="state",
         icon="mdi:washing-machine",
+        device_class=SensorDeviceClass.ENUM,
+        options=[s.value for s in ApplianceState],
     ),
     SensorEntityDescription(
         key="cycle_count",
-        name="Cycle Count",
+        translation_key="cycle_count",
         icon="mdi:counter",
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL_INCREASING,
     ),
     SensorEntityDescription(
         key="cycle_start",
-        name="Cycle Start",
+        translation_key="cycle_start",
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="cycle_duration",
-        name="Cycle Duration",
+        translation_key="cycle_duration",
         icon="mdi:timer",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -49,7 +54,7 @@ ENTITY_DESCRIPTIONS = (
     ),
     SensorEntityDescription(
         key="total_operating_time",
-        name="Total Operating Time",
+        translation_key="total_operating_time",
         icon="mdi:timer-cog",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -90,6 +95,6 @@ class ApplianceMonitorSensor(ApplianceMonitorEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> str | float | None:
+    def native_value(self) -> str | float | datetime | None:
         """Return the current sensor value."""
         return self.coordinator.data.get(self.entity_description.key)  # type: ignore[return-value]

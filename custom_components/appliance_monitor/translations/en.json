@@ -18,7 +18,13 @@
         },
         "sensor": {
             "state": {
-                "name": "State"
+                "name": "State",
+                "state": {
+                    "idle": "Idle",
+                    "running": "Running",
+                    "paused": "Paused",
+                    "finished": "Finished"
+                }
             },
             "cycle_count": {
                 "name": "Cycle Count"

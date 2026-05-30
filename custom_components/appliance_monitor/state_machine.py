@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
-_ACTIVE_STATES = frozenset(["running", "paused"])
-
 
 class ApplianceState(StrEnum):
     """Possible states of a monitored appliance."""
@@ -18,6 +16,9 @@ class ApplianceState(StrEnum):
     RUNNING = "running"
     PAUSED = "paused"
     FINISHED = "finished"
+
+
+_ACTIVE_STATES = frozenset({ApplianceState.RUNNING, ApplianceState.PAUSED})
 
 
 class ApplianceStateMachine:
@@ -49,10 +50,13 @@ class ApplianceStateMachine:
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
-        if self._last_update is not None and self._state in _ACTIVE_STATES:
-            self._total_operating_seconds += (now - self._last_update).total_seconds()
-        if self._cycle_start is not None and self._state in _ACTIVE_STATES:
-            self._cycle_duration_seconds = (now - self._cycle_start).total_seconds()
+        if self._state in _ACTIVE_STATES:
+            if self._last_update is not None:
+                self._total_operating_seconds += (
+                    now - self._last_update
+                ).total_seconds()
+            if self._cycle_start is not None:
+                self._cycle_duration_seconds = (now - self._cycle_start).total_seconds()
         self._last_update = now
 
         if self._state is ApplianceState.IDLE:
@@ -112,7 +116,11 @@ class ApplianceStateMachine:
             self._above_threshold_since = None
 
     def reset(self) -> None:
-        """Force the state machine back to IDLE; cycle count and total operating time are preserved."""
+        """
+        Force the state machine back to IDLE.
+
+        Cycle count and total operating time are preserved.
+        """
         self._state = ApplianceState.IDLE
         self._pause_start = None
         self._above_threshold_since = None
@@ -147,7 +155,11 @@ class ApplianceStateMachine:
 
     @property
     def cycle_duration_seconds(self) -> float:
-        """Return wall-clock cycle duration in seconds; frozen at FINISHED, zero before first cycle."""
+        """
+        Return wall-clock cycle duration in seconds.
+
+        Frozen at FINISHED, zero before first cycle and after reset.
+        """
         return self._cycle_duration_seconds
 
     @property

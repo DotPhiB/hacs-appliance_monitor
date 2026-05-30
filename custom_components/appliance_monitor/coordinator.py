@@ -80,6 +80,8 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _current_data(self, power: float | None = None) -> dict[str, Any]:
         """Snapshot the state machine into a coordinator data dict."""
+        if power is None:
+            power = self.data.get("power", 0.0) if self.data else 0.0
         return {
             "state": str(self._state_machine.state),
             "running": self._state_machine.is_running,
@@ -88,7 +90,7 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cycle_duration": self._state_machine.cycle_duration_seconds,
             "total_operating_time": self._state_machine.total_operating_seconds,
             "cycle_count": self._state_machine.cycle_count,
-            "power": power if power is not None else (self.data.get("power", 0.0) if self.data else 0.0),
+            "power": power,
         }
 
     def reset(self) -> None:
