@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import ATTR_DEVICE_CLASS
 from homeassistant.helpers import selector
 
 from .const import (
@@ -100,6 +102,9 @@ class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    _pending_input: dict[str, Any] | None = None
+    _pending_device_class: str | None = None
+
     async def async_step_user(
         self,
         user_input: dict | None = None,
@@ -119,6 +124,12 @@ class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     errors[CONF_POWER_SENSOR] = "sensor_not_numeric"
 
             if not errors:
+                device_class = state.attributes.get(ATTR_DEVICE_CLASS)
+                if device_class != SensorDeviceClass.POWER:
+                    self._pending_input = user_input
+                    self._pending_device_class = device_class
+                    return await self.async_step_confirm_non_power()
+
                 await self.async_set_unique_id(entity_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -136,6 +147,32 @@ class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ).extend(_threshold_schema(user_input or {}).schema),
             errors=errors,
+        )
+
+    async def async_step_confirm_non_power(
+        self,
+        user_input: dict | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm using a sensor whose device_class is not 'power'."""
+        if user_input is not None and self._pending_input is not None:
+            entity_id: str = self._pending_input[CONF_POWER_SENSOR]
+            await self.async_set_unique_id(entity_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=entity_id,
+                data=self._pending_input,
+            )
+
+        entity_id = (
+            self._pending_input[CONF_POWER_SENSOR] if self._pending_input else ""
+        )
+        return self.async_show_form(
+            step_id="confirm_non_power",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "entity_id": entity_id,
+                "device_class": self._pending_device_class or "unknown",
+            },
         )
 
     @staticmethod

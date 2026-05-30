@@ -58,6 +58,10 @@
                     "pause_delay": "Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle power dips. Set to 0 to react immediately.",
                     "idle_timeout": "Minutes of sustained low power (after the pause delay) before a cycle is marked as finished."
                 }
+            },
+            "confirm_non_power": {
+                "title": "Sensor is not a power sensor",
+                "description": "The selected sensor `{entity_id}` reports device class `{device_class}`. This integration expects a power sensor (watts). Energy sensors (kWh, monotonically increasing) will not work — the state machine relies on the value dropping when the appliance pauses or finishes.\n\nSubmit to continue anyway, or cancel and select a different sensor."
             }
         },
         "error": {
