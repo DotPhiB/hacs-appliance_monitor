@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.dt import utcnow
 
 from .const import (
@@ -73,14 +73,21 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
 
         if state is None or state.state in {"unavailable", "unknown"}:
-            msg = f"Power sensor {entity_id} is unavailable"
-            raise UpdateFailed(msg)
+            self._state_machine.mark_disconnected()
+            self._schedule_persist()
+            return self._current_data()
 
         try:
             power = float(state.state)
-        except ValueError as err:
-            msg = f"Power sensor {entity_id} returned non-numeric value: {state.state}"
-            raise UpdateFailed(msg) from err
+        except ValueError:
+            LOGGER.warning(
+                "Power sensor %s returned non-numeric value: %s",
+                entity_id,
+                state.state,
+            )
+            self._state_machine.mark_disconnected()
+            self._schedule_persist()
+            return self._current_data()
 
         self._state_machine.update(power, utcnow())
         self._schedule_persist()

@@ -617,6 +617,63 @@ class TestRestoreSnapshot:
         assert sm.total_energy_kwh == 1.0
 
 
+class TestDisconnected:
+    """Source-unavailable handling via mark_disconnected()."""
+
+    def test_mark_disconnected_from_running(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """State becomes DISCONNECTED and pre-disconnect state is remembered."""
+        sm.update(ABOVE_START, _t(0))
+        assert sm.state is ApplianceState.RUNNING
+        sm.mark_disconnected()
+        assert sm.state is ApplianceState.DISCONNECTED
+
+    def test_reconnect_restores_previous_state(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Next update after disconnect restores the pre-disconnect state."""
+        sm.update(ABOVE_START, _t(0))
+        sm.mark_disconnected()
+        sm.update(ABOVE_START, _t(300))
+        assert sm.state is ApplianceState.RUNNING
+
+    def test_disconnect_does_not_integrate_energy_across_gap(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """No energy or operating time accumulates across the disconnected window."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(ABOVE_START, _t(10))  # 10s of legitimate operating time
+        energy_before = sm.total_energy_kwh
+        operating_before = sm.total_operating_seconds
+        sm.mark_disconnected()
+        sm.update(ABOVE_START, _t(1000))  # 990s gap — must not backfill
+        assert sm.total_energy_kwh == pytest.approx(energy_before)
+        assert sm.total_operating_seconds == pytest.approx(operating_before)
+
+    def test_disconnect_clears_idle_countdown(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """A mid-countdown disconnect must not fire FINISHED on stale elapsed time."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))  # arms idle countdown
+        sm.mark_disconnected()
+        # Reconnect long after idle_timeout would have elapsed, still below idle:
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS * 10))
+        # Countdown restarted from reconnect, so we're still RUNNING:
+        assert sm.state is ApplianceState.RUNNING
+
+    def test_repeated_mark_disconnected_is_idempotent(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Calling mark_disconnected() twice keeps the original pre-disconnect state."""
+        sm.update(ABOVE_START, _t(0))
+        sm.mark_disconnected()
+        sm.mark_disconnected()  # would clobber if not guarded
+        sm.update(ABOVE_START, _t(100))
+        assert sm.state is ApplianceState.RUNNING
+
+
 class TestFullCycle:
     """End-to-end scenarios covering the full state graph."""
 

@@ -15,6 +15,7 @@ class ApplianceState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     FINISHED = "finished"
+    DISCONNECTED = "disconnected"
 
 
 class ApplianceStateMachine:
@@ -33,6 +34,7 @@ class ApplianceStateMachine:
         self._idle_timeout_seconds = idle_timeout_seconds
         self._start_delay_seconds = start_delay_seconds
         self._state: ApplianceState = ApplianceState.IDLE
+        self._state_before_disconnect: ApplianceState = ApplianceState.IDLE
         self._above_threshold_since: datetime | None = None
         self._below_idle_since: datetime | None = None
         self._cycle_start: datetime | None = None
@@ -46,6 +48,8 @@ class ApplianceStateMachine:
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
+        if self._state is ApplianceState.DISCONNECTED:
+            self._state = self._state_before_disconnect
         if self._last_update is not None:
             dt_seconds = (now - self._last_update).total_seconds()
             avg_power_w = (self._last_power + power) / 2.0
@@ -112,11 +116,28 @@ class ApplianceStateMachine:
         Cycle count and total operating time are preserved.
         """
         self._state = ApplianceState.IDLE
+        self._state_before_disconnect = ApplianceState.IDLE
         self._above_threshold_since = None
         self._below_idle_since = None
         self._cycle_start = None
         self._cycle_duration_seconds = 0.0
         self._cycle_energy_kwh = 0.0
+        self._last_update = None
+
+    def mark_disconnected(self) -> None:
+        """
+        Mark the source sensor as unavailable.
+
+        Behaves like an HA restart: state and totals are preserved, but no
+        energy is integrated and no hysteresis timers advance until a fresh
+        sample arrives.
+        """
+        if self._state is ApplianceState.DISCONNECTED:
+            return
+        self._state_before_disconnect = self._state
+        self._state = ApplianceState.DISCONNECTED
+        self._above_threshold_since = None
+        self._below_idle_since = None
         self._last_update = None
 
     def reset_cycle_count(self) -> None:

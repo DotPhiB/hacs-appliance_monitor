@@ -26,7 +26,8 @@
                 "state": {
                     "idle": "Idle",
                     "running": "Running",
-                    "finished": "Finished"
+                    "finished": "Finished",
+                    "disconnected": "Disconnected"
                 }
             },
             "cycle_count": {

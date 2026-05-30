@@ -19,9 +19,11 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 ## Features
 
 - Detects **running** and **finished** states from a single power sensor
-- Exposes state as HA binary sensors and sensors — ready for automations and dashboards
+- Exposes a single primary state entity plus diagnostic sensors — automations work off either
 - Keeps the cycle in RUNNING through intermediate low-draw phases (spin-pause, dishwasher drying, oven holding temp) — only marks FINISHED when power stays low past the idle timeout
-- Configurable start delay (hysteresis) to filter brief power spikes
+- Optional start delay to ignore brief startup spikes (e.g. inrush current when the appliance is first plugged in)
+- Reports a **disconnected** state when the source power sensor goes unavailable, without corrupting energy totals or firing spurious transitions across the gap
+- State and lifetime totals survive Home Assistant restarts
 - All thresholds and timeouts are adjustable post-setup via the integration's options
 
 ---
@@ -50,7 +52,7 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 |---|---|---|
 | Power sensor | HA sensor entity reporting live power in watts | — |
 | Start threshold (W) | Power above this level means the appliance has started | 10 W |
-| Start delay (s) | Seconds power must stay at or above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
+| Start delay (s) | Seconds power must stay at or above the start threshold before a cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed. | 0 s |
 | Idle threshold (W) | Power below this level signals the appliance is idle or about to finish | 3 W |
 | Idle timeout (s) | Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so mid-cycle low-draw phases keep the appliance RUNNING. Set to 0 for an instant transition. | 30 s |
 
@@ -60,33 +62,33 @@ All fields except the power sensor can be changed at any time via **Settings →
 
 ## Entities
 
-Each configured appliance exposes the following entities:
+Each configured appliance exposes one primary entity, a set of diagnostic entities, and config controls. Diagnostic and config entities are hidden from the default device card but are fully usable in automations, templates, and other integrations.
 
-### Binary sensors
-
-| Entity | On when |
-|---|---|
-| `binary_sensor.<name>_running` | Appliance is actively running |
-| `binary_sensor.<name>_finished` | Last cycle has finished (resets when a new cycle starts or the Reset button is pressed) |
-
-### Sensors
+### Primary
 
 | Entity | Description |
 |---|---|
-| `sensor.<name>_state` | Current state: `idle`, `running`, or `finished` |
+| `sensor.<name>_state` | Current state: `idle`, `running`, `finished`, or `disconnected` |
+
+### Diagnostic
+
+| Entity | Description |
+|---|---|
+| `binary_sensor.<name>_running` | On while the appliance is actively running |
+| `binary_sensor.<name>_finished` | On after a cycle finishes; clears when a new cycle starts or the state is reset |
 | `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
 | `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds (frozen at FINISHED) |
 | `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
-| `sensor.<name>_cycle_start` _(diagnostic)_ | Timestamp when the current/last cycle started |
-| `sensor.<name>_total_operating_time` _(diagnostic)_ | Lifetime seconds in RUNNING — survives state resets |
-| `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) — Energy Dashboard compatible |
+| `sensor.<name>_cycle_start` | Timestamp when the current/last cycle started |
+| `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING — survives state resets |
+| `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) |
 
-### Buttons
+### Config
 
 | Entity | Action |
 |---|---|
-| `button.<name>_reset_state` _(config)_ | Reset the appliance state to IDLE (clears finished notification; cycle count and totals preserved) |
-| `button.<name>_reset_cycle_count` _(config)_ | Zero the cycle counter without affecting state |
+| `button.<name>_reset_state` | Reset the appliance state to IDLE (clears finished notification; cycle count and totals preserved) |
+| `button.<name>_reset_cycle_count` | Zero the cycle counter without affecting state |
 
 ---
 
@@ -106,9 +108,15 @@ IDLE ─────────────────────────
 
 - **IDLE → RUNNING**: power reaches the start threshold (optionally for `start_delay` seconds continuously).
 - **RUNNING → RUNNING**: brief dips below the idle threshold keep state RUNNING — common during intermediate phases (washer between rinses, dishwasher soaking, etc.). The idle countdown restarts on each recovery.
-- **RUNNING → FINISHED**: power stays below the idle threshold continuously for longer than `idle_timeout`.
+- **RUNNING → FINISHED**: power stays below the idle threshold continuously for at least `idle_timeout` seconds.
 - **FINISHED → RUNNING**: a new power spike starts a fresh cycle.
 - **Any → IDLE**: the Reset State button forces the machine back to IDLE.
+
+### Disconnected handling
+
+When the source power sensor becomes `unavailable` or `unknown`, the state entity reports `disconnected`. The state machine pauses cleanly: no energy is integrated across the gap, the idle countdown is cleared, and lifetime totals stay frozen. On reconnect, the previous state (IDLE/RUNNING/FINISHED) is restored and counting resumes from the next fresh sample — the same behavior as recovering from a Home Assistant restart.
+
+Note: this only catches sources that explicitly report unavailable. A source that goes silent while still showing its last value (some MQTT setups without LWT, partial device failures) will look like steady power to the integration — that's a limitation of the source, not something this integration tries to second-guess.
 
 ---
 
