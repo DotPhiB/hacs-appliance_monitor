@@ -76,24 +76,25 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(msg) from err
 
         self._state_machine.update(power, utcnow())
+        return self._current_data(power)
 
+    def _current_data(self, power: float | None = None) -> dict[str, Any]:
+        """Snapshot the state machine into a coordinator data dict."""
         return {
             "state": str(self._state_machine.state),
             "running": self._state_machine.is_running,
             "finished": self._state_machine.is_finished,
             "runtime": self._state_machine.runtime_seconds,
-            "power": power,
+            "cycle_count": self._state_machine.cycle_count,
+            "power": power if power is not None else (self.data.get("power", 0.0) if self.data else 0.0),
         }
 
     def reset(self) -> None:
-        """Reset the appliance state to IDLE and trigger a coordinator refresh."""
+        """Reset the appliance state to IDLE; cycle count is preserved."""
         self._state_machine.reset()
-        self.async_set_updated_data(
-            {
-                "state": str(self._state_machine.state),
-                "running": self._state_machine.is_running,
-                "finished": self._state_machine.is_finished,
-                "runtime": self._state_machine.runtime_seconds,
-                "power": self.data.get("power", 0.0) if self.data else 0.0,
-            }
-        )
+        self.async_set_updated_data(self._current_data())
+
+    def reset_cycle_count(self) -> None:
+        """Zero the cycle counter without affecting the current state."""
+        self._state_machine.reset_cycle_count()
+        self.async_set_updated_data(self._current_data())

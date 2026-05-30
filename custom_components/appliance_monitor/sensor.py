@@ -33,6 +33,12 @@ ENTITY_DESCRIPTIONS = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.MEASUREMENT,
     ),
+    SensorEntityDescription(
+        key="cycle_count",
+        name="Cycle Count",
+        icon="mdi:counter",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
 )
 
 

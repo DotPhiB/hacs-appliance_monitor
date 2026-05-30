@@ -41,6 +41,7 @@ class ApplianceStateMachine:
         self._below_idle_since: datetime | None = None
         self._runtime_seconds: float = 0.0
         self._last_update: datetime | None = None
+        self._cycle_count: int = 0
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
@@ -95,6 +96,7 @@ class ApplianceStateMachine:
             and (now - self._pause_start).total_seconds() > self._idle_timeout_seconds
         ):
             self._state = ApplianceState.FINISHED
+            self._cycle_count += 1
 
     def _handle_finished(self, power: float, now: datetime) -> None:
         if power > self._start_threshold:
@@ -110,6 +112,10 @@ class ApplianceStateMachine:
         self._below_idle_since = None
         self._runtime_seconds = 0.0
         self._last_update = None
+
+    def reset_cycle_count(self) -> None:
+        """Zero the cycle counter without affecting the current state."""
+        self._cycle_count = 0
 
     @property
     def state(self) -> ApplianceState:
@@ -130,3 +136,8 @@ class ApplianceStateMachine:
     def runtime_seconds(self) -> float:
         """Return accumulated runtime in seconds for the current cycle."""
         return self._runtime_seconds
+
+    @property
+    def cycle_count(self) -> int:
+        """Return the number of completed cycles since last reset."""
+        return self._cycle_count

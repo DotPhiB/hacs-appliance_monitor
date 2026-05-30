@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
@@ -15,11 +16,22 @@ if TYPE_CHECKING:
     from .coordinator import ApplianceMonitorCoordinator
     from .data import ApplianceMonitorConfigEntry
 
-ENTITY_DESCRIPTIONS = (
-    ButtonEntityDescription(
-        key="reset",
-        name="Reset",
-        icon="mdi:restart",
+_BUTTONS: tuple[tuple[ButtonEntityDescription, str], ...] = (
+    (
+        ButtonEntityDescription(
+            key="reset_state",
+            name="Reset State",
+            icon="mdi:restart",
+        ),
+        "reset",
+    ),
+    (
+        ButtonEntityDescription(
+            key="reset_cycle_count",
+            name="Reset Cycle Count",
+            icon="mdi:counter",
+        ),
+        "reset_cycle_count",
     ),
 )
 
@@ -30,22 +42,25 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the button platform."""
+    coordinator = entry.runtime_data.coordinator
     async_add_entities(
         ApplianceMonitorButton(
-            coordinator=entry.runtime_data.coordinator,
-            entity_description=entity_description,
+            coordinator=coordinator,
+            entity_description=description,
+            action=getattr(coordinator, action_name),
         )
-        for entity_description in ENTITY_DESCRIPTIONS
+        for description, action_name in _BUTTONS
     )
 
 
 class ApplianceMonitorButton(ApplianceMonitorEntity, ButtonEntity):
-    """Button that resets the appliance state machine to IDLE."""
+    """A button that triggers a single coordinator action."""
 
     def __init__(
         self,
         coordinator: ApplianceMonitorCoordinator,
         entity_description: ButtonEntityDescription,
+        action: Callable[[], None],
     ) -> None:
         """Initialise the button."""
         super().__init__(coordinator)
@@ -53,7 +68,8 @@ class ApplianceMonitorButton(ApplianceMonitorEntity, ButtonEntity):
         self._attr_unique_id = (
             f"{coordinator.config_entry.entry_id}_{entity_description.key}"
         )
+        self._action = action
 
     async def async_press(self) -> None:
-        """Handle button press — reset the state machine to IDLE."""
-        self.coordinator.reset()
+        """Handle button press."""
+        self._action()

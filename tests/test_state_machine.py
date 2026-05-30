@@ -55,6 +55,10 @@ class TestInitialState:
         """runtime_seconds is zero before any update."""
         assert sm.runtime_seconds == 0.0
 
+    def test_initial_cycle_count_zero(self, sm: ApplianceStateMachine) -> None:
+        """cycle_count is zero on construction."""
+        assert sm.cycle_count == 0
+
 
 class TestIdleTransitions:
     """Transitions out of IDLE."""
@@ -434,6 +438,15 @@ class TestReset:
         sm.reset()
         assert not sm.is_finished
 
+    def test_reset_preserves_cycle_count(self, sm: ApplianceStateMachine) -> None:
+        """reset() does not zero the cycle counter."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.cycle_count == 1
+        sm.reset()
+        assert sm.cycle_count == 1
+
     def test_reset_allows_normal_cycle_after(self, sm: ApplianceStateMachine) -> None:
         """A normal cycle can start immediately after a reset."""
         sm.update(ABOVE_START, _t(0))
@@ -443,6 +456,64 @@ class TestReset:
         sm.update(ABOVE_START, _t(200))
         assert sm.state is ApplianceState.RUNNING
         assert sm.runtime_seconds == 0.0
+
+
+class TestCycleCount:
+    """cycle_count increments on FINISHED and is zeroed by reset_cycle_count()."""
+
+    def _finish_cycle(self, sm: ApplianceStateMachine, t_offset: float = 0) -> float:
+        """Drive sm through one complete cycle; return the timestamp of FINISHED."""
+        t_run = t_offset
+        sm.update(ABOVE_START, _t(t_run))
+        sm.update(BELOW_IDLE, _t(t_run + 10))
+        t_fin = t_run + 10 + IDLE_TIMEOUT_SECS + 1
+        sm.update(BELOW_IDLE, _t(t_fin))
+        return t_fin
+
+    def test_increments_on_finished(self, sm: ApplianceStateMachine) -> None:
+        """cycle_count becomes 1 when the first cycle reaches FINISHED."""
+        self._finish_cycle(sm)
+        assert sm.cycle_count == 1
+
+    def test_increments_across_multiple_cycles(self, sm: ApplianceStateMachine) -> None:
+        """cycle_count accumulates across back-to-back cycles."""
+        t = self._finish_cycle(sm, t_offset=0)
+        t = self._finish_cycle(sm, t_offset=t + 10)
+        self._finish_cycle(sm, t_offset=t + 10)
+        assert sm.cycle_count == 3
+
+    def test_does_not_increment_on_reset_from_running(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Resetting mid-cycle does not count as a completed cycle."""
+        sm.update(ABOVE_START, _t(0))
+        sm.reset()
+        assert sm.cycle_count == 0
+
+    def test_reset_cycle_count_zeroes_counter(self, sm: ApplianceStateMachine) -> None:
+        """reset_cycle_count() brings the counter back to zero."""
+        self._finish_cycle(sm)
+        assert sm.cycle_count == 1
+        sm.reset_cycle_count()
+        assert sm.cycle_count == 0
+
+    def test_reset_cycle_count_leaves_state_intact(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """reset_cycle_count() does not affect the current machine state."""
+        self._finish_cycle(sm)
+        assert sm.state is ApplianceState.FINISHED
+        sm.reset_cycle_count()
+        assert sm.state is ApplianceState.FINISHED
+
+    def test_count_continues_after_reset_cycle_count(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """After zeroing, the counter resumes counting from zero."""
+        self._finish_cycle(sm, t_offset=0)
+        sm.reset_cycle_count()
+        self._finish_cycle(sm, t_offset=300)
+        assert sm.cycle_count == 1
 
 
 class TestFullCycle:

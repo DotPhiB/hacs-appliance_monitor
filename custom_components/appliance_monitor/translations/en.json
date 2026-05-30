@@ -1,8 +1,30 @@
 {
     "entity": {
+        "binary_sensor": {
+            "running": {
+                "name": "Running"
+            },
+            "finished": {
+                "name": "Finished"
+            }
+        },
         "button": {
-            "reset": {
-                "name": "Reset"
+            "reset_state": {
+                "name": "Reset State"
+            },
+            "reset_cycle_count": {
+                "name": "Reset Cycle Count"
+            }
+        },
+        "sensor": {
+            "state": {
+                "name": "State"
+            },
+            "runtime": {
+                "name": "Runtime"
+            },
+            "cycle_count": {
+                "name": "Cycle Count"
             }
         }
     },
