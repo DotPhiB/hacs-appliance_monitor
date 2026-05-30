@@ -37,6 +37,7 @@ ENTITY_DESCRIPTIONS = (
         translation_key="cycle_count",
         icon="mdi:counter",
         state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="cycle_start",
@@ -51,6 +52,7 @@ ENTITY_DESCRIPTIONS = (
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="cycle_energy",
@@ -59,6 +61,7 @@ ENTITY_DESCRIPTIONS = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="total_operating_time",
@@ -76,6 +79,7 @@ ENTITY_DESCRIPTIONS = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 

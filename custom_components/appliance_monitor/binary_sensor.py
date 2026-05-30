@@ -9,6 +9,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import EntityCategory
 
 from .entity import ApplianceMonitorEntity
 
@@ -24,10 +25,12 @@ ENTITY_DESCRIPTIONS = (
         key="running",
         translation_key="running",
         device_class=BinarySensorDeviceClass.RUNNING,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     BinarySensorEntityDescription(
         key="finished",
         translation_key="finished",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 
