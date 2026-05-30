@@ -12,6 +12,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.const import EntityCategory
 
 from .entity import ApplianceMonitorEntity
+from .state_machine import ApplianceState
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -66,6 +67,8 @@ class ApplianceMonitorBinarySensor(ApplianceMonitorEntity, BinarySensorEntity):
         )
 
     @property
-    def is_on(self) -> bool:
-        """Return True when the sensor condition is active."""
+    def is_on(self) -> bool | None:
+        """Return True when the sensor condition is active, None while disconnected."""
+        if self.coordinator.data.get("state") == ApplianceState.DISCONNECTED.value:
+            return None
         return bool(self.coordinator.data.get(self.entity_description.key))

@@ -88,8 +88,11 @@ class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    _pending_input: dict[str, Any] | None = None
-    _pending_device_class: str | None = None
+    def __init__(self) -> None:
+        """Initialize per-flow state."""
+        super().__init__()
+        self._pending_input: dict[str, Any] | None = None
+        self._pending_device_class: str | None = None
 
     async def async_step_user(
         self,

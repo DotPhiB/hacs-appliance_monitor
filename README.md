@@ -83,6 +83,8 @@ Each configured appliance exposes one primary entity, a set of diagnostic entiti
 | `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING — survives state resets |
 | `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) |
 
+> **Energy Dashboard note**: `total_energy` is exposed as `device_class=ENERGY` so HA will offer it under Settings → Energy → "Add consumption." Prefer your source meter's own energy sensor if it exposes one — those are measured directly by the device, while this one is integrated from power readings (less accurate). Use this one only when your source provides power but no energy.
+
 ### Config
 
 | Entity | Action |
@@ -104,7 +106,12 @@ IDLE ─────────────────────────
  └────────── reset button ───────── FINISHED
                                        │
                                        └── power > start_threshold ──► RUNNING (new cycle)
+
+   (any) ──► DISCONNECTED ──► (resumes prior state on next sample)
+     source unavailable
 ```
+
+(See [Disconnected handling](#disconnected-handling) below for the gap semantics.)
 
 - **IDLE → RUNNING**: power reaches the start threshold (optionally for `start_delay` seconds continuously).
 - **RUNNING → RUNNING**: brief dips below the idle threshold keep state RUNNING — common during intermediate phases (washer between rinses, dishwasher soaking, etc.). The idle countdown restarts on each recovery.
@@ -114,7 +121,7 @@ IDLE ─────────────────────────
 
 ### Disconnected handling
 
-When the source power sensor becomes `unavailable` or `unknown`, the state entity reports `disconnected`. The state machine pauses cleanly: no energy is integrated across the gap, the idle countdown is cleared, and lifetime totals stay frozen. On reconnect, the previous state (IDLE/RUNNING/FINISHED) is restored and counting resumes from the next fresh sample — the same behavior as recovering from a Home Assistant restart.
+When the source power sensor becomes `unavailable` or `unknown` — or starts returning non-numeric values — the state entity reports `disconnected` and the diagnostic binary sensors (`running`, `finished`) report `unknown` (their value is undefined while the source is silent). The state machine pauses cleanly: no energy is integrated across the gap, the idle countdown is cleared, and lifetime totals stay frozen. On reconnect, the previous state (IDLE/RUNNING/FINISHED) is restored and counting resumes from the next fresh sample — the same behavior as recovering from a Home Assistant restart.
 
 Note: this only catches sources that explicitly report unavailable. A source that goes silent while still showing its last value (some MQTT setups without LWT, partial device failures) will look like steady power to the integration — that's a limitation of the source, not something this integration tries to second-guess.
 

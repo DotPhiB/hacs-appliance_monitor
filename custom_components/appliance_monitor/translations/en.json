@@ -62,7 +62,7 @@
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started.",
-                    "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Filters brief power spikes. Set to 0 to react immediately.",
+                    "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
                     "idle_threshold": "Power below this level signals the appliance is idle or about to finish.",
                     "idle_timeout": "Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so the appliance keeps running through intermediate low-draw phases. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
                 }
@@ -92,7 +92,7 @@
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started.",
-                    "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Filters brief power spikes. Set to 0 to react immediately.",
+                    "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
                     "idle_threshold": "Power below this level signals the appliance is idle or about to finish.",
                     "idle_timeout": "Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so the appliance keeps running through intermediate low-draw phases. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
                 }

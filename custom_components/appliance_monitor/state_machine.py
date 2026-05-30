@@ -50,8 +50,13 @@ class ApplianceStateMachine:
         """Advance the state machine with a new power reading."""
         if self._state is ApplianceState.DISCONNECTED:
             self._state = self._state_before_disconnect
+            self._state_before_disconnect = ApplianceState.IDLE
         if self._last_update is not None:
             dt_seconds = (now - self._last_update).total_seconds()
+            # Clock jumped backward (e.g. NTP correction on a clock-less RPi);
+            # skip integration this tick to avoid negative energy/operating time.
+            if dt_seconds < 0:
+                dt_seconds = 0.0
             avg_power_w = (self._last_power + power) / 2.0
             energy_kwh = avg_power_w * dt_seconds / 3_600_000.0
             self._total_energy_kwh += energy_kwh
@@ -59,9 +64,9 @@ class ApplianceStateMachine:
                 self._total_operating_seconds += dt_seconds
                 self._cycle_energy_kwh += energy_kwh
                 if self._cycle_start is not None:
-                    self._cycle_duration_seconds = (
-                        now - self._cycle_start
-                    ).total_seconds()
+                    self._cycle_duration_seconds = max(
+                        0.0, (now - self._cycle_start).total_seconds()
+                    )
         self._last_update = now
         self._last_power = power
 
@@ -103,11 +108,9 @@ class ApplianceStateMachine:
         else:
             self._below_idle_since = None
 
-    def _handle_finished(self, power: float, now: datetime) -> None:
-        if power >= self._start_threshold:
-            self._try_start_running(now)
-        else:
-            self._above_threshold_since = None
+    _handle_finished = (
+        _handle_idle  # FINISHED handles the start spike exactly like IDLE
+    )
 
     def reset(self) -> None:
         """
@@ -144,13 +147,16 @@ class ApplianceStateMachine:
         """Zero the cycle counter without affecting state or operating time."""
         self._cycle_count = 0
 
-    def restore_snapshot(
+    # too-many-arguments (PLR0913) is fine here: this mirrors persisted snapshot
+    # fields one-to-one; bundling into a dataclass would add ceremony without payoff.
+    def restore_snapshot(  # noqa: PLR0913
         self,
         *,
         cycle_count: int = 0,
         total_operating_seconds: float = 0.0,
         total_energy_kwh: float = 0.0,
         state: ApplianceState = ApplianceState.IDLE,
+        state_before_disconnect: ApplianceState = ApplianceState.IDLE,
         cycle_start: datetime | None = None,
         cycle_duration_seconds: float = 0.0,
         cycle_energy_kwh: float = 0.0,
@@ -160,6 +166,7 @@ class ApplianceStateMachine:
         self._total_operating_seconds = total_operating_seconds
         self._total_energy_kwh = total_energy_kwh
         self._state = state
+        self._state_before_disconnect = state_before_disconnect
         self._cycle_start = cycle_start
         self._cycle_duration_seconds = cycle_duration_seconds
         self._cycle_energy_kwh = cycle_energy_kwh
@@ -168,6 +175,11 @@ class ApplianceStateMachine:
     def state(self) -> ApplianceState:
         """Return current state."""
         return self._state
+
+    @property
+    def state_before_disconnect(self) -> ApplianceState:
+        """Return the state to resume to when the source reconnects."""
+        return self._state_before_disconnect
 
     @property
     def is_running(self) -> bool:
@@ -209,7 +221,7 @@ class ApplianceStateMachine:
 
     @property
     def total_energy_kwh(self) -> float:
-        """Return lifetime energy in kWh integrated from every power reading; never reset."""
+        """Return lifetime energy in kWh integrated from every reading; never reset."""
         return self._total_energy_kwh
 
     @property

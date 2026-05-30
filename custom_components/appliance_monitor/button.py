@@ -10,7 +10,7 @@ from homeassistant.const import EntityCategory
 from .entity import ApplianceMonitorEntity
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -64,7 +64,7 @@ class ApplianceMonitorButton(ApplianceMonitorEntity, ButtonEntity):
         self,
         coordinator: ApplianceMonitorCoordinator,
         entity_description: ButtonEntityDescription,
-        action: Callable[[], None],
+        action: Callable[[], Awaitable[None]],
     ) -> None:
         """Initialise the button."""
         super().__init__(coordinator)
@@ -76,4 +76,4 @@ class ApplianceMonitorButton(ApplianceMonitorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle button press."""
-        self._action()
+        await self._action()

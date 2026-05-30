@@ -41,9 +41,17 @@ async def async_setup_entry(
     await coordinator.async_config_entry_first_refresh()
 
     async def _handle_power_change(
-        _event: Event[EventStateChangedData],
+        event: Event[EventStateChangedData],
     ) -> None:
         """Trigger a coordinator refresh when the source sensor reports a new value."""
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if (
+            new_state is not None
+            and old_state is not None
+            and new_state.state == old_state.state
+        ):
+            return
         await coordinator.async_refresh()
 
     entry.async_on_unload(

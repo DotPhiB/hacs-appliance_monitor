@@ -89,8 +89,14 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._schedule_persist()
             return self._current_data()
 
+        cycle_count_before = self._state_machine.cycle_count
         self._state_machine.update(power, utcnow())
-        self._schedule_persist()
+        if self._state_machine.cycle_count > cycle_count_before:
+            # Cycle just finished — persist immediately so an ungraceful
+            # shutdown before the debounce fires can't drop the count.
+            await self._async_persist_now()
+        else:
+            self._schedule_persist()
         return self._current_data(power)
 
     async def async_load_persisted_snapshot(self) -> None:
@@ -102,15 +108,28 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             state = ApplianceState(data.get("state", ApplianceState.IDLE.value))
         except ValueError:
             state = ApplianceState.IDLE
+        try:
+            state_before_disconnect = ApplianceState(
+                data.get(
+                    "state_before_disconnect",
+                    ApplianceState.IDLE.value,
+                ),
+            )
+        except ValueError:
+            state_before_disconnect = ApplianceState.IDLE
         cycle_start_raw = data.get("cycle_start")
-        cycle_start = (
-            datetime.fromisoformat(cycle_start_raw) if cycle_start_raw else None
-        )
+        try:
+            cycle_start = (
+                datetime.fromisoformat(cycle_start_raw) if cycle_start_raw else None
+            )
+        except TypeError, ValueError:
+            cycle_start = None
         self._state_machine.restore_snapshot(
             cycle_count=int(data.get("cycle_count", 0)),
             total_operating_seconds=float(data.get("total_operating_seconds", 0.0)),
             total_energy_kwh=float(data.get("total_energy_kwh", 0.0)),
             state=state,
+            state_before_disconnect=state_before_disconnect,
             cycle_start=cycle_start,
             cycle_duration_seconds=float(data.get("cycle_duration_seconds", 0.0)),
             cycle_energy_kwh=float(data.get("cycle_energy_kwh", 0.0)),
@@ -120,6 +139,10 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Queue a debounced write of state and totals; HA also flushes on shutdown."""
         self._store.async_delay_save(self._snapshot_for_persist, PERSIST_DELAY_SECONDS)
 
+    async def _async_persist_now(self) -> None:
+        """Write the snapshot immediately, bypassing the debounce."""
+        await self._store.async_save(self._snapshot_for_persist())
+
     def _snapshot_for_persist(self) -> dict[str, Any]:
         """Build the dict written to .storage at the next debounced save."""
         sm = self._state_machine
@@ -128,6 +151,7 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "total_operating_seconds": sm.total_operating_seconds,
             "total_energy_kwh": sm.total_energy_kwh,
             "state": str(sm.state),
+            "state_before_disconnect": str(sm.state_before_disconnect),
             "cycle_start": sm.cycle_start.isoformat() if sm.cycle_start else None,
             "cycle_duration_seconds": sm.cycle_duration_seconds,
             "cycle_energy_kwh": sm.cycle_energy_kwh,
@@ -150,14 +174,14 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "power": power,
         }
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """Reset the appliance state to IDLE; cycle count is preserved."""
         self._state_machine.reset()
-        self._schedule_persist()
+        await self._async_persist_now()
         self.async_set_updated_data(self._current_data())
 
-    def reset_cycle_count(self) -> None:
+    async def reset_cycle_count(self) -> None:
         """Zero the cycle counter without affecting the current state."""
         self._state_machine.reset_cycle_count()
-        self._schedule_persist()
+        await self._async_persist_now()
         self.async_set_updated_data(self._current_data())
