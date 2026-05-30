@@ -44,7 +44,7 @@ async def async_setup_entry(
         _event: Event[EventStateChangedData],
     ) -> None:
         """Trigger a coordinator refresh when the source sensor reports a new value."""
-        await coordinator.async_request_refresh()
+        await coordinator.async_refresh()
 
     entry.async_on_unload(
         async_track_state_change_event(
