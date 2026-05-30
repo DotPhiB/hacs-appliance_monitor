@@ -4,6 +4,10 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-30
+
+Initial public release.
+
 ### Added
 - Power-driven appliance state machine: `idle`, `running`, `finished`, `disconnected`
 - Per-cycle metrics: duration, energy, start timestamp
