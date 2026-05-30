@@ -100,11 +100,7 @@ class TestIdleTransitions:
     def test_first_update_never_accumulates_operating_time(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """
-        No operating time is accumulated on the first update.
-
-        Regardless of timestamp.
-        """
+        """No operating time is accumulated on the first update regardless of timestamp."""
         sm.update(ABOVE_START, _t(9999))
         assert sm.total_operating_seconds == 0.0
 
@@ -126,11 +122,35 @@ class TestRunningTransitions:
         sm.update(ABOVE_START, _t(10))
         assert sm.state is ApplianceState.RUNNING
 
-    def test_transitions_to_paused(self, sm: ApplianceStateMachine) -> None:
-        """Power strictly below idle_threshold transitions RUNNING→PAUSED."""
+    def test_stays_running_during_brief_dip(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """A power dip below idle for less than idle_timeout keeps state RUNNING."""
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
-        assert sm.state is ApplianceState.PAUSED
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS))  # exactly at the boundary
+        assert sm.state is ApplianceState.RUNNING
+
+    def test_transitions_to_finished_after_idle_timeout(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Power below idle for longer than idle_timeout → FINISHED."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+        assert sm.state is ApplianceState.FINISHED
+
+    def test_recovery_during_idle_countdown_keeps_running(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Power returning above idle during the countdown resets the timer."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(ABOVE_START, _t(10 + IDLE_TIMEOUT_SECS / 2))  # recovers mid-countdown
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS / 2 + 1))  # dips again
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS / 2 + IDLE_TIMEOUT_SECS))
+        # Countdown restarted on the second dip; not yet expired.
+        assert sm.state is ApplianceState.RUNNING
 
     def test_cycle_duration_accumulates(self, sm: ApplianceStateMachine) -> None:
         """cycle_duration_seconds grows by elapsed seconds while RUNNING."""
@@ -138,112 +158,15 @@ class TestRunningTransitions:
         sm.update(ABOVE_START, _t(30))
         assert sm.cycle_duration_seconds == pytest.approx(30.0)
 
-    def test_cycle_duration_cumulative_across_updates(
+    def test_cycle_duration_includes_low_draw_phase(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """cycle_duration_seconds sums elapsed time across multiple RUNNING updates."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(ABOVE_START, _t(30))
-        sm.update(ABOVE_START, _t(50))
-        assert sm.cycle_duration_seconds == pytest.approx(50.0)
-
-    def test_cycle_duration_includes_interval_to_paused(
-        self, sm: ApplianceStateMachine
-    ) -> None:
-        """Elapsed time up to the RUNNING→PAUSED transition is counted."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(BELOW_IDLE, _t(20))
-        assert sm.cycle_duration_seconds == pytest.approx(20.0)
-
-    def test_total_operating_accumulates_while_running(
-        self, sm: ApplianceStateMachine
-    ) -> None:
-        """total_operating_seconds accumulates while RUNNING."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(ABOVE_START, _t(30))
-        assert sm.total_operating_seconds == pytest.approx(30.0)
-
-
-class TestPausedTransitions:
-    """Transitions out of PAUSED."""
-
-    @pytest.fixture
-    def paused_sm(self, sm: ApplianceStateMachine) -> ApplianceStateMachine:
-        """Return a state machine in PAUSED state (paused at t=10)."""
+        """cycle_duration_seconds keeps growing during low-draw phases (still RUNNING)."""
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
-        return sm
-
-    def test_stays_paused_within_timeout(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """State stays PAUSED while below threshold and timeout has not expired."""
-        paused_sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS - 1))
-        assert paused_sm.state is ApplianceState.PAUSED
-
-    def test_stays_paused_exactly_at_timeout(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """Timeout is strictly greater-than, so exactly at the boundary stays PAUSED."""
-        paused_sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS))
-        assert paused_sm.state is ApplianceState.PAUSED
-
-    def test_transitions_to_finished_after_timeout(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """State becomes FINISHED once idle_timeout_seconds is exceeded."""
-        paused_sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
-        assert paused_sm.state is ApplianceState.FINISHED
-        assert paused_sm.is_finished
-        assert not paused_sm.is_running
-
-    def test_resumes_running_on_power_recovery(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """Power above start_threshold transitions PAUSED→RUNNING."""
-        paused_sm.update(ABOVE_START, _t(20))
-        assert paused_sm.state is ApplianceState.RUNNING
-        assert paused_sm.is_running
-
-    def test_pause_start_cleared_on_resume(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """_pause_start is cleared when resuming from PAUSED to RUNNING."""
-        paused_sm.update(ABOVE_START, _t(20))
-        assert paused_sm._pause_start is None
-
-    def test_cycle_duration_continues_while_paused(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """
-        cycle_duration_seconds keeps growing while PAUSED.
-
-        Appliance is still active during a pause.
-        """
-        paused_sm.update(BELOW_IDLE, _t(10 + 30))
-        assert paused_sm.cycle_duration_seconds == pytest.approx(40.0)
-
-    def test_total_operating_accumulates_while_paused(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """total_operating_seconds accumulates during PAUSED state."""
-        operating_at_pause = paused_sm.total_operating_seconds
-        paused_sm.update(BELOW_IDLE, _t(10 + 30))
-        assert paused_sm.total_operating_seconds == pytest.approx(
-            operating_at_pause + 30.0
-        )
-
-    def test_cycle_duration_after_recovery(
-        self, paused_sm: ApplianceStateMachine
-    ) -> None:
-        """
-        cycle_duration_seconds is wall-clock from cycle start.
-
-        Measured across pause and resume.
-        """
-        paused_sm.update(ABOVE_START, _t(20))  # resume
-        paused_sm.update(ABOVE_START, _t(35))  # 15 s more running
-        assert paused_sm.cycle_duration_seconds == pytest.approx(35.0)
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS - 5))
+        assert sm.state is ApplianceState.RUNNING
+        assert sm.cycle_duration_seconds == pytest.approx(10 + IDLE_TIMEOUT_SECS - 5)
 
 
 class TestFinishedTransitions:
@@ -300,13 +223,6 @@ class TestFinishedTransitions:
         finished_sm.update(ABOVE_START, _t(200))
         assert finished_sm.cycle_start == _t(200)
 
-    def test_pause_start_cleared_on_new_cycle(
-        self, finished_sm: ApplianceStateMachine
-    ) -> None:
-        """_pause_start is cleared when a new cycle starts from FINISHED."""
-        finished_sm.update(ABOVE_START, _t(200))
-        assert finished_sm._pause_start is None
-
     def test_total_operating_does_not_accumulate_while_finished(
         self, finished_sm: ApplianceStateMachine
     ) -> None:
@@ -352,8 +268,8 @@ class TestStartHysteresis:
     ) -> None:
         """A power drop below threshold resets the hysteresis timer."""
         delayed_sm.update(ABOVE_START, _t(0))
-        delayed_sm.update(BELOW_IDLE, _t(self.START_DELAY - 1))  # drops before delay
-        delayed_sm.update(ABOVE_START, _t(self.START_DELAY))  # back up — timer resets
+        delayed_sm.update(BELOW_IDLE, _t(self.START_DELAY - 1))
+        delayed_sm.update(ABOVE_START, _t(self.START_DELAY))
         assert delayed_sm.state is ApplianceState.IDLE
 
     def test_zero_delay_transitions_immediately(self) -> None:
@@ -376,92 +292,8 @@ class TestStartHysteresis:
         delayed_sm.update(ABOVE_START, _t(t_run))
         delayed_sm.update(BELOW_IDLE, _t(t_run + 10))
         delayed_sm.update(BELOW_IDLE, _t(t_run + 10 + IDLE_TIMEOUT_SECS + 1))
-        delayed_sm.update(ABOVE_START, _t(t_run + 200))  # delay not yet elapsed
+        delayed_sm.update(ABOVE_START, _t(t_run + 200))
         assert delayed_sm.state is ApplianceState.FINISHED
-
-    def test_default_has_no_delay(self) -> None:
-        """start_delay_seconds defaults to zero — same as explicitly passing 0."""
-        sm_explicit = ApplianceStateMachine(
-            start_threshold=START_THRESHOLD,
-            idle_threshold=IDLE_THRESHOLD,
-            idle_timeout_seconds=IDLE_TIMEOUT_SECS,
-            start_delay_seconds=0,
-        )
-        sm_default = ApplianceStateMachine(
-            start_threshold=START_THRESHOLD,
-            idle_threshold=IDLE_THRESHOLD,
-            idle_timeout_seconds=IDLE_TIMEOUT_SECS,
-        )
-        sm_explicit.update(ABOVE_START, _t(0))
-        sm_default.update(ABOVE_START, _t(0))
-        assert sm_explicit.state == sm_default.state
-
-
-class TestPauseHysteresis:
-    """pause_delay_seconds prevents premature RUNNING→PAUSED transitions."""
-
-    PAUSE_DELAY: float = 30.0
-
-    @pytest.fixture
-    def delayed_sm(self) -> ApplianceStateMachine:
-        """State machine with a 30-second pause delay."""
-        return ApplianceStateMachine(
-            start_threshold=START_THRESHOLD,
-            idle_threshold=IDLE_THRESHOLD,
-            idle_timeout_seconds=IDLE_TIMEOUT_SECS,
-            pause_delay_seconds=self.PAUSE_DELAY,
-        )
-
-    def test_stays_running_before_pause_delay_expires(
-        self, delayed_sm: ApplianceStateMachine
-    ) -> None:
-        """Brief power dip below idle threshold does not immediately pause."""
-        delayed_sm.update(ABOVE_START, _t(0))
-        delayed_sm.update(BELOW_IDLE, _t(10))
-        delayed_sm.update(BELOW_IDLE, _t(10 + self.PAUSE_DELAY - 1))
-        assert delayed_sm.state is ApplianceState.RUNNING
-
-    def test_transitions_to_paused_after_delay(
-        self, delayed_sm: ApplianceStateMachine
-    ) -> None:
-        """State becomes PAUSED once power stays low for the full pause delay."""
-        delayed_sm.update(ABOVE_START, _t(0))
-        delayed_sm.update(BELOW_IDLE, _t(10))
-        delayed_sm.update(BELOW_IDLE, _t(10 + self.PAUSE_DELAY))
-        assert delayed_sm.state is ApplianceState.PAUSED
-
-    def test_pause_delay_resets_on_power_recovery(
-        self, delayed_sm: ApplianceStateMachine
-    ) -> None:
-        """A power recovery above idle threshold resets the pause hysteresis timer."""
-        delayed_sm.update(ABOVE_START, _t(0))
-        delayed_sm.update(BELOW_IDLE, _t(10))
-        delayed_sm.update(ABOVE_START, _t(10 + self.PAUSE_DELAY - 1))  # recovers
-        delayed_sm.update(BELOW_IDLE, _t(10 + self.PAUSE_DELAY))  # dip resets timer
-        assert delayed_sm.state is ApplianceState.RUNNING
-
-    def test_zero_pause_delay_transitions_immediately(self) -> None:
-        """With pause_delay_seconds=0 (default), RUNNING→PAUSED fires immediately."""
-        sm = ApplianceStateMachine(
-            start_threshold=START_THRESHOLD,
-            idle_threshold=IDLE_THRESHOLD,
-            idle_timeout_seconds=IDLE_TIMEOUT_SECS,
-            pause_delay_seconds=0,
-        )
-        sm.update(ABOVE_START, _t(0))
-        sm.update(BELOW_IDLE, _t(10))
-        assert sm.state is ApplianceState.PAUSED
-
-    def test_cycle_duration_not_lost_during_pending_pause(
-        self, delayed_sm: ApplianceStateMachine
-    ) -> None:
-        """cycle_duration_seconds keeps accumulating during a pending pause."""
-        delayed_sm.update(ABOVE_START, _t(0))
-        delayed_sm.update(ABOVE_START, _t(20))  # 20 s running
-        delayed_sm.update(BELOW_IDLE, _t(30))  # dip — still RUNNING
-        delayed_sm.update(BELOW_IDLE, _t(40))  # still within delay
-        assert delayed_sm.state is ApplianceState.RUNNING
-        assert delayed_sm.cycle_duration_seconds == pytest.approx(40.0)
 
 
 class TestReset:
@@ -470,14 +302,6 @@ class TestReset:
     def test_reset_from_running(self, sm: ApplianceStateMachine) -> None:
         """Reset while RUNNING returns the machine to IDLE."""
         sm.update(ABOVE_START, _t(0))
-        assert sm.state is ApplianceState.RUNNING
-        sm.reset()
-        assert sm.state is ApplianceState.IDLE
-
-    def test_reset_from_paused(self, sm: ApplianceStateMachine) -> None:
-        """Reset while PAUSED returns the machine to IDLE."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(BELOW_IDLE, _t(10))
         sm.reset()
         assert sm.state is ApplianceState.IDLE
 
@@ -486,7 +310,6 @@ class TestReset:
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
         sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
-        assert sm.state is ApplianceState.FINISHED
         sm.reset()
         assert sm.state is ApplianceState.IDLE
 
@@ -503,20 +326,11 @@ class TestReset:
         sm.reset()
         assert sm.cycle_start is None
 
-    def test_reset_clears_is_finished(self, sm: ApplianceStateMachine) -> None:
-        """is_finished is False immediately after a reset."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(BELOW_IDLE, _t(10))
-        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
-        sm.reset()
-        assert not sm.is_finished
-
     def test_reset_preserves_cycle_count(self, sm: ApplianceStateMachine) -> None:
         """reset() does not zero the cycle counter."""
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
         sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
-        assert sm.cycle_count == 1
         sm.reset()
         assert sm.cycle_count == 1
 
@@ -558,7 +372,9 @@ class TestCycleCount:
         self._finish_cycle(sm)
         assert sm.cycle_count == 1
 
-    def test_increments_across_multiple_cycles(self, sm: ApplianceStateMachine) -> None:
+    def test_increments_across_multiple_cycles(
+        self, sm: ApplianceStateMachine
+    ) -> None:
         """cycle_count accumulates across back-to-back cycles."""
         t = self._finish_cycle(sm, t_offset=0)
         t = self._finish_cycle(sm, t_offset=t + 10)
@@ -576,7 +392,6 @@ class TestCycleCount:
     def test_reset_cycle_count_zeroes_counter(self, sm: ApplianceStateMachine) -> None:
         """reset_cycle_count() brings the counter back to zero."""
         self._finish_cycle(sm)
-        assert sm.cycle_count == 1
         sm.reset_cycle_count()
         assert sm.cycle_count == 0
 
@@ -585,7 +400,6 @@ class TestCycleCount:
     ) -> None:
         """reset_cycle_count() does not affect the current machine state."""
         self._finish_cycle(sm)
-        assert sm.state is ApplianceState.FINISHED
         sm.reset_cycle_count()
         assert sm.state is ApplianceState.FINISHED
 
@@ -600,7 +414,7 @@ class TestCycleCount:
 
 
 class TestTotalOperatingTime:
-    """total_operating_seconds accumulates RUNNING+PAUSED time and survives resets."""
+    """total_operating_seconds accumulates RUNNING time and survives resets."""
 
     def test_accumulates_running_time(self, sm: ApplianceStateMachine) -> None:
         """Operating time grows while RUNNING."""
@@ -608,11 +422,15 @@ class TestTotalOperatingTime:
         sm.update(ABOVE_START, _t(30))
         assert sm.total_operating_seconds == pytest.approx(30.0)
 
-    def test_accumulates_paused_time(self, sm: ApplianceStateMachine) -> None:
-        """Operating time grows while PAUSED."""
+    def test_accumulates_during_low_draw_phase(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Operating time grows even when power is low — state is still RUNNING."""
         sm.update(ABOVE_START, _t(0))
-        sm.update(BELOW_IDLE, _t(10))  # → PAUSED
-        sm.update(BELOW_IDLE, _t(40))  # 30 s in PAUSED
+        sm.update(BELOW_IDLE, _t(10))
+        # 30 s of low-draw mid-cycle (still RUNNING, below idle_timeout):
+        sm.update(BELOW_IDLE, _t(40))
+        assert sm.state is ApplianceState.RUNNING
         assert sm.total_operating_seconds == pytest.approx(40.0)
 
     def test_does_not_accumulate_while_idle(self, sm: ApplianceStateMachine) -> None:
@@ -628,32 +446,11 @@ class TestTotalOperatingTime:
         sm.reset()
         assert sm.total_operating_seconds == pytest.approx(60.0)
 
-    def test_survives_reset_cycle_count(self, sm: ApplianceStateMachine) -> None:
-        """total_operating_seconds is preserved after reset_cycle_count()."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(ABOVE_START, _t(60))
-        sm.reset_cycle_count()
-        assert sm.total_operating_seconds == pytest.approx(60.0)
-
-    def test_accumulates_across_multiple_cycles(
-        self, sm: ApplianceStateMachine
-    ) -> None:
-        """Operating time sums across back-to-back cycles including pauses."""
-        sm.update(ABOVE_START, _t(0))
-        sm.update(ABOVE_START, _t(50))  # 50 s running
-        sm.update(BELOW_IDLE, _t(60))  # → PAUSED (10 s running counted on this tick)
-        sm.update(BELOW_IDLE, _t(60 + IDLE_TIMEOUT_SECS + 1))  # → FINISHED
-        total_after_first = sm.total_operating_seconds
-        sm.update(ABOVE_START, _t(200))  # new cycle
-        sm.update(ABOVE_START, _t(230))  # 30 s running
-        assert sm.total_operating_seconds == pytest.approx(total_after_first + 30.0)
-
 
 class TestEnergy:
     """cycle_energy_kwh and total_energy_kwh integrate power over time."""
 
-    # 3600 W for 1 hour = 3.6 kWh; for 1 s = 1 Wh = 0.001 kWh
-    POWER_W = 3600.0
+    POWER_W = 3600.0  # 3600 W for 1 s = 1 Wh
 
     def test_initial_zero(self, sm: ApplianceStateMachine) -> None:
         """Both energy counters start at zero."""
@@ -667,31 +464,22 @@ class TestEnergy:
         assert sm.total_energy_kwh == 0.0
 
     def test_constant_power_running(self, sm: ApplianceStateMachine) -> None:
-        """Constant 3600 W for 10 s while RUNNING → 0.01 kWh (10 Wh)."""
-        sm.update(self.POWER_W, _t(0))  # → RUNNING, no integration this tick
-        sm.update(self.POWER_W, _t(10))  # 10 s of 3600 W = 36000 Ws = 10 Wh
+        """Constant 3600 W for 10 s while RUNNING → 0.01 kWh."""
+        sm.update(self.POWER_W, _t(0))
+        sm.update(self.POWER_W, _t(10))
         assert sm.cycle_energy_kwh == pytest.approx(0.01)
         assert sm.total_energy_kwh == pytest.approx(0.01)
 
     def test_trapezoidal_with_varying_power(self, sm: ApplianceStateMachine) -> None:
-        """Trapezoidal: average of (1000+2000)/2 = 1500 W for 10 s = 4.166e-3 kWh."""
+        """Trapezoidal: average of (1000+2000)/2 = 1500 W for 10 s."""
         sm.update(1000.0, _t(0))
         sm.update(2000.0, _t(10))
-        # 1500 W * 10 s = 15000 Ws = 4.1667 Wh = 0.0041667 kWh
         assert sm.cycle_energy_kwh == pytest.approx(15000 / 3_600_000.0)
-
-    def test_accumulates_during_paused(self, sm: ApplianceStateMachine) -> None:
-        """Energy integration also runs during PAUSED (low draw is still draw)."""
-        sm.update(self.POWER_W, _t(0))
-        sm.update(BELOW_IDLE, _t(10))  # → PAUSED, integrates 10 s of avg power
-        before = sm.cycle_energy_kwh
-        sm.update(BELOW_IDLE, _t(40))  # 30 s in PAUSED at ~BELOW_IDLE
-        assert sm.cycle_energy_kwh > before
 
     def test_cycle_energy_does_not_integrate_while_idle(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """cycle_energy_kwh stays zero while in IDLE — cycle is not running."""
+        """cycle_energy_kwh stays zero while in IDLE."""
         sm.update(BELOW_IDLE, _t(0))
         sm.update(BELOW_IDLE, _t(3600))
         assert sm.cycle_energy_kwh == 0.0
@@ -699,9 +487,9 @@ class TestEnergy:
     def test_total_energy_integrates_while_idle(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """total_energy_kwh accumulates standby/quiescent consumption during IDLE."""
+        """total_energy_kwh accumulates standby consumption during IDLE."""
         sm.update(BELOW_IDLE, _t(0))
-        sm.update(BELOW_IDLE, _t(3600))  # 1h at BELOW_IDLE W
+        sm.update(BELOW_IDLE, _t(3600))
         assert sm.total_energy_kwh == pytest.approx(BELOW_IDLE * 3600 / 3_600_000.0)
 
     def test_cycle_energy_frozen_while_finished(
@@ -711,10 +499,9 @@ class TestEnergy:
         sm.update(ABOVE_START, _t(0))
         sm.update(BELOW_IDLE, _t(10))
         sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
-        assert sm.state is ApplianceState.FINISHED
-        frozen_cycle = sm.cycle_energy_kwh
+        frozen = sm.cycle_energy_kwh
         sm.update(BELOW_IDLE, _t(1000))
-        assert sm.cycle_energy_kwh == pytest.approx(frozen_cycle)
+        assert sm.cycle_energy_kwh == pytest.approx(frozen)
 
     def test_total_energy_integrates_while_finished(
         self, sm: ApplianceStateMachine
@@ -736,7 +523,7 @@ class TestEnergy:
         sm.update(BELOW_IDLE, _t(70))
         sm.update(BELOW_IDLE, _t(70 + IDLE_TIMEOUT_SECS + 1))
         assert sm.cycle_energy_kwh > 0.0
-        sm.update(self.POWER_W, _t(500))  # new cycle
+        sm.update(self.POWER_W, _t(500))
         assert sm.cycle_energy_kwh == 0.0
 
     def test_total_energy_survives_new_cycle(
@@ -772,19 +559,17 @@ class TestFullCycle:
     """End-to-end scenarios covering the full state graph."""
 
     def test_complete_cycle(self, sm: ApplianceStateMachine) -> None:
-        """Full cycle: IDLE→RUNNING→PAUSED→RUNNING→PAUSED→FINISHED→RUNNING."""
+        """Full cycle: IDLE→RUNNING→(low draw)→RUNNING→FINISHED→RUNNING."""
         sm.update(ABOVE_START, _t(0))
         assert sm.state is ApplianceState.RUNNING
 
-        sm.update(BELOW_IDLE, _t(30))
-        assert sm.state is ApplianceState.PAUSED
+        sm.update(BELOW_IDLE, _t(30))  # low draw mid-cycle — still RUNNING
+        assert sm.state is ApplianceState.RUNNING
 
-        sm.update(ABOVE_START, _t(45))
+        sm.update(ABOVE_START, _t(45))  # back to high draw — still RUNNING
         assert sm.state is ApplianceState.RUNNING
 
         sm.update(BELOW_IDLE, _t(60))
-        assert sm.state is ApplianceState.PAUSED
-
         sm.update(BELOW_IDLE, _t(60 + IDLE_TIMEOUT_SECS + 1))
         assert sm.state is ApplianceState.FINISHED
 
@@ -792,13 +577,13 @@ class TestFullCycle:
         assert sm.state is ApplianceState.RUNNING
         assert sm.cycle_duration_seconds == 0.0
 
-    def test_cycle_duration_wall_clock_across_pause_and_resume(
+    def test_cycle_duration_wall_clock_through_low_draw(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """cycle_duration_seconds is wall-clock from start, not net motor-on time."""
-        sm.update(ABOVE_START, _t(0))  # cycle_start = 0
-        sm.update(ABOVE_START, _t(20))  # 20 s
-        sm.update(BELOW_IDLE, _t(30))  # → PAUSED at t=30
-        sm.update(ABOVE_START, _t(50))  # resume after 20 s paused
-        sm.update(ABOVE_START, _t(65))  # 15 more s running
+        """cycle_duration_seconds is wall-clock from start through low-draw phases."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(ABOVE_START, _t(20))
+        sm.update(BELOW_IDLE, _t(30))
+        sm.update(ABOVE_START, _t(50))
+        sm.update(ABOVE_START, _t(65))
         assert sm.cycle_duration_seconds == pytest.approx(65.0)

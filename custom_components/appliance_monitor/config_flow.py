@@ -13,13 +13,11 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_IDLE_THRESHOLD,
     CONF_IDLE_TIMEOUT,
-    CONF_PAUSE_DELAY,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
     DEFAULT_IDLE_THRESHOLD,
     DEFAULT_IDLE_TIMEOUT,
-    DEFAULT_PAUSE_DELAY,
     DEFAULT_START_DELAY,
     DEFAULT_START_THRESHOLD,
     DOMAIN,
@@ -66,18 +64,6 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                     max=10000,
                     step=0.5,
                     unit_of_measurement="W",
-                    mode=selector.NumberSelectorMode.BOX,
-                ),
-            ),
-            vol.Required(
-                CONF_PAUSE_DELAY,
-                default=defaults.get(CONF_PAUSE_DELAY, DEFAULT_PAUSE_DELAY),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=600,
-                    step=1,
-                    unit_of_measurement="s",
                     mode=selector.NumberSelectorMode.BOX,
                 ),
             ),

@@ -11,11 +11,9 @@ from homeassistant.util.dt import utcnow
 from .const import (
     CONF_IDLE_THRESHOLD,
     CONF_IDLE_TIMEOUT,
-    CONF_PAUSE_DELAY,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
-    DEFAULT_PAUSE_DELAY,
     DEFAULT_START_DELAY,
     LOGGER,
 )
@@ -50,7 +48,6 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             idle_threshold=self._conf(CONF_IDLE_THRESHOLD),
             idle_timeout_seconds=self._conf(CONF_IDLE_TIMEOUT),
             start_delay_seconds=self._conf(CONF_START_DELAY, DEFAULT_START_DELAY),
-            pause_delay_seconds=self._conf(CONF_PAUSE_DELAY, DEFAULT_PAUSE_DELAY),
         )
 
     def _conf(self, key: str, default: Any = None) -> Any:

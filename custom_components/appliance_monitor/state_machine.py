@@ -14,11 +14,7 @@ class ApplianceState(StrEnum):
 
     IDLE = "idle"
     RUNNING = "running"
-    PAUSED = "paused"
     FINISHED = "finished"
-
-
-_ACTIVE_STATES = frozenset({ApplianceState.RUNNING, ApplianceState.PAUSED})
 
 
 class ApplianceStateMachine:
@@ -30,16 +26,13 @@ class ApplianceStateMachine:
         idle_threshold: float,
         idle_timeout_seconds: float,
         start_delay_seconds: float = 0,
-        pause_delay_seconds: float = 0,
     ) -> None:
         """Initialise with threshold and timeout values."""
         self._start_threshold = start_threshold
         self._idle_threshold = idle_threshold
         self._idle_timeout_seconds = idle_timeout_seconds
         self._start_delay_seconds = start_delay_seconds
-        self._pause_delay_seconds = pause_delay_seconds
         self._state: ApplianceState = ApplianceState.IDLE
-        self._pause_start: datetime | None = None
         self._above_threshold_since: datetime | None = None
         self._below_idle_since: datetime | None = None
         self._cycle_start: datetime | None = None
@@ -58,7 +51,7 @@ class ApplianceStateMachine:
             avg_power_w = (self._last_power + power) / 2.0
             energy_kwh = avg_power_w * dt_seconds / 3_600_000.0
             self._total_energy_kwh += energy_kwh
-            if self._state in _ACTIVE_STATES:
+            if self._state is ApplianceState.RUNNING:
                 self._total_operating_seconds += dt_seconds
                 self._cycle_energy_kwh += energy_kwh
                 if self._cycle_start is not None:
@@ -72,8 +65,6 @@ class ApplianceStateMachine:
             self._handle_idle(power, now)
         elif self._state is ApplianceState.RUNNING:
             self._handle_running(power, now)
-        elif self._state is ApplianceState.PAUSED:
-            self._handle_paused(power, now)
         elif self._state is ApplianceState.FINISHED:
             self._handle_finished(power, now)
 
@@ -87,7 +78,7 @@ class ApplianceStateMachine:
             self._cycle_start = now
             self._cycle_duration_seconds = 0.0
             self._cycle_energy_kwh = 0.0
-            self._pause_start = None
+            self._below_idle_since = None
             self._above_threshold_since = None
 
     def _handle_idle(self, power: float, now: datetime) -> None:
@@ -101,23 +92,12 @@ class ApplianceStateMachine:
             if self._below_idle_since is None:
                 self._below_idle_since = now
             elapsed = (now - self._below_idle_since).total_seconds()
-            if elapsed >= self._pause_delay_seconds:
-                self._state = ApplianceState.PAUSED
-                self._pause_start = now
+            if elapsed > self._idle_timeout_seconds:
+                self._state = ApplianceState.FINISHED
+                self._cycle_count += 1
                 self._below_idle_since = None
         else:
             self._below_idle_since = None
-
-    def _handle_paused(self, power: float, now: datetime) -> None:
-        if power > self._start_threshold:
-            self._state = ApplianceState.RUNNING
-            self._pause_start = None
-        elif (
-            self._pause_start is not None
-            and (now - self._pause_start).total_seconds() > self._idle_timeout_seconds
-        ):
-            self._state = ApplianceState.FINISHED
-            self._cycle_count += 1
 
     def _handle_finished(self, power: float, now: datetime) -> None:
         if power > self._start_threshold:
@@ -132,7 +112,6 @@ class ApplianceStateMachine:
         Cycle count and total operating time are preserved.
         """
         self._state = ApplianceState.IDLE
-        self._pause_start = None
         self._above_threshold_since = None
         self._below_idle_since = None
         self._cycle_start = None
@@ -175,7 +154,7 @@ class ApplianceStateMachine:
 
     @property
     def total_operating_seconds(self) -> float:
-        """Return lifetime seconds spent in RUNNING or PAUSED; never reset."""
+        """Return lifetime seconds spent in RUNNING; never reset."""
         return self._total_operating_seconds
 
     @property

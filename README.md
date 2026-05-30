@@ -1,6 +1,6 @@
 # Appliance Monitor
 
-A Home Assistant custom integration that monitors appliance power consumption and automatically detects when an appliance is running, paused, or finished with a cycle.
+A Home Assistant custom integration that monitors appliance power consumption and automatically detects when an appliance is running or finished with a cycle.
 
 Designed for washing machines, dishwashers, dryers, and any appliance with a measurable power draw pattern.
 
@@ -18,10 +18,10 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 
 ## Features
 
-- Detects **running**, **paused**, and **finished** states from a single power sensor
+- Detects **running** and **finished** states from a single power sensor
 - Exposes state as HA binary sensors and sensors — ready for automations and dashboards
-- Handles temporary idle periods mid-cycle (spin-pause, dishwasher drying phase, etc.)
-- Configurable start and pause delays (hysteresis) to filter brief power spikes and mid-cycle dips
+- Keeps the cycle in RUNNING through intermediate low-draw phases (spin-pause, dishwasher drying, oven holding temp) — only marks FINISHED when power stays low past the idle timeout
+- Configurable start delay (hysteresis) to filter brief power spikes
 - All thresholds and timeouts are adjustable post-setup via the integration's options
 
 ---
@@ -51,9 +51,8 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 | Power sensor | HA sensor entity reporting live power in watts | — |
 | Start threshold (W) | Power above this level means the appliance has started | 10 W |
 | Start delay (s) | Seconds power must stay above the start threshold before a cycle begins. Filters brief spikes. | 0 s |
-| Idle threshold (W) | Power below this level means the appliance is idle or paused | 3 W |
-| Pause delay (s) | Seconds power must stay below the idle threshold before the appliance is considered paused. Filters mid-cycle dips. | 0 s |
-| Idle timeout (s) | Seconds of sustained low power (after the pause delay) before a cycle is marked finished. Set to 0 for an instant transition. | 30 s |
+| Idle threshold (W) | Power below this level signals the appliance is idle or about to finish | 3 W |
+| Idle timeout (s) | Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so mid-cycle low-draw phases keep the appliance RUNNING. Set to 0 for an instant transition. | 30 s |
 
 All fields except the power sensor can be changed at any time via **Settings → Devices & Services → Appliance Monitor → Configure**.
 
@@ -74,13 +73,13 @@ Each configured appliance exposes the following entities:
 
 | Entity | Description |
 |---|---|
-| `sensor.<name>_state` | Current state: `idle`, `running`, `paused`, or `finished` |
+| `sensor.<name>_state` | Current state: `idle`, `running`, or `finished` |
 | `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
 | `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds (frozen at FINISHED) |
 | `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
 | `sensor.<name>_cycle_start` _(diagnostic)_ | Timestamp when the current/last cycle started |
-| `sensor.<name>_total_operating_time` _(diagnostic)_ | Lifetime seconds in RUNNING or PAUSED — survives state resets |
-| `sensor.<name>_total_energy` | Lifetime energy in kWh — Energy Dashboard compatible |
+| `sensor.<name>_total_operating_time` _(diagnostic)_ | Lifetime seconds in RUNNING — survives state resets |
+| `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) — Energy Dashboard compatible |
 
 ### Buttons
 
@@ -95,23 +94,21 @@ Each configured appliance exposes the following entities:
 
 ```
          power > start_threshold
-IDLE ─────────────────────────────► RUNNING
- ▲                                   │    ▲
- │                          power <  │    │ power >
- │                       idle_thresh │    │ start_thresh
- │                                   ▼    │
- │              timeout          PAUSED ──┘
- │           exceeded
-FINISHED ◄──────────────────────────┘
-   │
-   └── power > start_threshold ──► RUNNING (new cycle)
+IDLE ─────────────────────────────► RUNNING ◄──── (brief dips reset timer)
+ ▲                                     │
+ │                                     │ power < idle_threshold
+ │                                     │ for idle_timeout seconds continuously
+ │                                     ▼
+ └────────── reset button ───────── FINISHED
+                                       │
+                                       └── power > start_threshold ──► RUNNING (new cycle)
 ```
 
 - **IDLE → RUNNING**: power exceeds the start threshold (optionally for `start_delay` seconds continuously).
-- **RUNNING → PAUSED**: power stays below the idle threshold for `pause_delay` seconds continuously.
-- **PAUSED → RUNNING**: power recovers above the start threshold before the timeout expires.
-- **PAUSED → FINISHED**: power stays low for longer than the idle timeout.
+- **RUNNING → RUNNING**: brief dips below the idle threshold keep state RUNNING — common during intermediate phases (washer between rinses, dishwasher soaking, etc.). The idle countdown restarts on each recovery.
+- **RUNNING → FINISHED**: power stays below the idle threshold continuously for longer than `idle_timeout`.
 - **FINISHED → RUNNING**: a new power spike starts a fresh cycle.
+- **Any → IDLE**: the Reset State button forces the machine back to IDLE.
 
 ---
 
