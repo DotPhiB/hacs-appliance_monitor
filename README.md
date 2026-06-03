@@ -179,6 +179,27 @@ Each configured appliance exposes a small primary set, a set of diagnostic entit
 
 ---
 
+## Blueprints
+
+Ready-made automations you can import directly into Home Assistant.
+
+### Appliance Finished Notification
+
+Sends a push notification when a cycle completes. Optionally includes cycle duration and energy consumed. The notification has a **Reset** action button that presses the Reset State button without opening the app — only shown when you configure a reset button.
+
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FDotPhiB%2Fhacs-appliance_monitor%2Fmain%2Fblueprints%2Fappliance_finished.yaml)
+
+| Input | Required | Description |
+|---|---|---|
+| Finished Sensor | yes | `binary_sensor.<name>_finished` |
+| Reset Button | no | `button.<name>_reset_state` — enables the Reset action in the notification |
+| Cycle Duration Sensor | no | `sensor.<name>_cycle_duration` — adds duration to the message |
+| Cycle Energy Sensor | no | `sensor.<name>_cycle_energy` — adds energy to the message |
+| Appliance Name | no | Display name; auto-detected from the entity if left blank |
+| Notification Service | yes | e.g. `notify.mobile_app_my_phone` |
+
+---
+
 ## State machine
 
 ```

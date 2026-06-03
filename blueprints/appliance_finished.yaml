@@ -1,0 +1,208 @@
+blueprint:
+  name: Appliance Monitor – Finished Notification
+  description: >
+    Sends a notification when a monitored appliance finishes a cycle.
+    Optionally shows cycle duration and energy consumed. Includes a
+    "Reset" action in the mobile notification that presses the Reset State
+    button without leaving your phone.
+  domain: automation
+
+  input:
+    finished_sensor:
+      name: Finished Sensor
+      description: The "finished" binary sensor exposed by the Appliance Monitor integration.
+      selector:
+        entity:
+          filter:
+            - integration: appliance_monitor
+              domain: binary_sensor
+
+    reset_button:
+      name: Reset Button
+      description: >
+        The "Reset State" button from Appliance Monitor. Tapping "Reset" in the
+        notification presses this button to return the appliance to idle.
+        Leave blank to disable.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: appliance_monitor
+              domain: button
+
+    cycle_duration_sensor:
+      name: Cycle Duration Sensor
+      description: >
+        The "Cycle Duration" sensor from Appliance Monitor. When set, the
+        notification includes how long the cycle took. Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: appliance_monitor
+              domain: sensor
+
+    cycle_energy_sensor:
+      name: Cycle Energy Sensor
+      description: >
+        The "Cycle Energy" sensor from Appliance Monitor. When set, the
+        notification includes the energy consumed during the cycle.
+        Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: appliance_monitor
+              domain: sensor
+
+    appliance_name:
+      name: Appliance Name
+      description: >
+        Display name used in notifications.
+        Leave blank to auto-detect from the entity's friendly name.
+      default: ""
+      selector:
+        text:
+
+    notify_service:
+      name: Notification Service
+      description: >
+        Notification service to call, e.g. notify.mobile_app_my_phone or
+        notify.my_group. Find yours under Developer Tools → Services.
+      default: notify.notify
+      selector:
+        text:
+
+# Run one branch at a time and drop overlapping triggers silently: the
+# appliance_reset run that action_reset's button press sets off is intentionally
+# discarded.
+mode: single
+max_exceeded: silent
+
+trigger:
+  - id: appliance_finished
+    platform: state
+    entity_id: !input finished_sensor
+    to: "on"
+
+  - id: appliance_reset
+    platform: state
+    entity_id: !input finished_sensor
+    from: "on"
+    to: "off"
+
+  # Fired when the user taps "Reset" in the mobile notification.
+  # The action string equals the finished_sensor entity_id — unique per instance,
+  # resolved at blueprint instantiation time via !input so no template is needed.
+  - id: action_reset
+    platform: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: !input finished_sensor
+
+variables:
+  finished_sensor: !input finished_sensor
+  reset_button: !input reset_button
+  cycle_duration_sensor: !input cycle_duration_sensor
+  cycle_energy_sensor: !input cycle_energy_sensor
+  appliance_name_input: !input appliance_name
+  appliance_name: >
+    {% if appliance_name_input != '' %}
+      {{ appliance_name_input }}
+    {% else %}
+      {{ state_attr(finished_sensor, 'friendly_name') | regex_replace('(?i) ?finished$', '') | trim }}
+    {% endif %}
+  notification_id: "appliance_finished_{{ finished_sensor | replace('.', '_') }}"
+  finished_at: "{{ now().strftime('%H:%M') }}"
+  has_duration: >
+    {{ cycle_duration_sensor != ''
+       and states(cycle_duration_sensor) not in ['unavailable', 'unknown', 'none'] }}
+  has_energy: >
+    {{ cycle_energy_sensor != ''
+       and states(cycle_energy_sensor) not in ['unavailable', 'unknown', 'none'] }}
+  duration_text: >
+    {% if has_duration %}
+      {% set s = states(cycle_duration_sensor) | float(0) | int %}
+      {% set h = s // 3600 %}
+      {% set m = (s % 3600) // 60 %}
+      {% if h > 0 %}{{ h }}h {{ m }}m{% else %}{{ m }} min{% endif %}
+    {% endif %}
+  energy_text: >
+    {% if has_energy %}
+      {{ states(cycle_energy_sensor) | float(0) | round(3) }} kWh
+    {% endif %}
+  message: >
+    {{ appliance_name }} finished at {{ finished_at }}.
+    {%- if has_duration %} Cycle took {{ duration_text | trim }}.{% endif %}
+    {%- if has_energy %} Used {{ energy_text | trim }}.{% endif %}
+  notification_actions: >
+    {% if reset_button != '' %}
+      {{ [{"action": finished_sensor, "title": "Reset"}] }}
+    {% else %}
+      {{ [] }}
+    {% endif %}
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: appliance_finished
+        sequence:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notification_id }}"
+              title: "{{ appliance_name }} finished"
+              message: "{{ message }}"
+
+          - action: !input notify_service
+            data:
+              title: "{{ appliance_name }} finished"
+              message: "{{ message }}"
+              data:
+                importance: high
+                persistent: true
+                sticky: true
+                channel: Appliance
+                notification_icon: "mdi:washing-machine-alert"
+                tag: "{{ notification_id }}"
+                actions: "{{ notification_actions }}"
+
+      - conditions:
+          - condition: trigger
+            id: appliance_reset
+        sequence:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ notification_id }}"
+
+          - action: !input notify_service
+            data:
+              message: clear_notification
+              data:
+                tag: "{{ notification_id }}"
+
+      - conditions:
+          - condition: trigger
+            id: action_reset
+        sequence:
+          # All-or-nothing: only act when a reset button is configured, so we
+          # never clear the notification while leaving the state finished.
+          - if:
+              - condition: template
+                value_template: "{{ reset_button != '' }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: "{{ reset_button }}"
+              # Clear here, not via the appliance_reset trigger: that follow-on
+              # run fires while this one is still active and is dropped by single
+              # mode.
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: "{{ notification_id }}"
+
+              - action: !input notify_service
+                data:
+                  message: clear_notification
+                  data:
+                    tag: "{{ notification_id }}"
