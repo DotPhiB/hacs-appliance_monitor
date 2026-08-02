@@ -13,9 +13,22 @@ from homeassistant.const import Platform
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
-from .const import CONF_POWER_SENSOR, DOMAIN
+from .const import (
+    CONF_FINISHED_ENERGY_THRESHOLD,
+    CONF_FINISHED_WINDOW,
+    CONF_IDLE_THRESHOLD,
+    CONF_IDLE_TIMEOUT,
+    CONF_POWER_SENSOR,
+    DEFAULT_FINISHED_WINDOW,
+    DEFAULT_IDLE_THRESHOLD,
+    DEFAULT_IDLE_TIMEOUT,
+    DOMAIN,
+    LOGGER,
+)
 from .coordinator import STORAGE_VERSION, ApplianceMonitorCoordinator
 from .data import ApplianceMonitorData
+
+SECONDS_PER_HOUR = 3600.0
 
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData, HomeAssistant
@@ -27,6 +40,37 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
 ]
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant,
+    entry: ApplianceMonitorConfigEntry,
+) -> bool:
+    """Migrate a v1 entry (idle threshold + timeout) to the window/energy pair."""
+    if entry.version >= 2:  # noqa: PLR2004
+        return True
+
+    def _migrate(values: dict) -> dict:
+        if CONF_IDLE_THRESHOLD not in values and CONF_IDLE_TIMEOUT not in values:
+            return values
+        migrated = dict(values)
+        threshold = migrated.pop(CONF_IDLE_THRESHOLD, DEFAULT_IDLE_THRESHOLD)
+        timeout = migrated.pop(CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT)
+        # A timeout of 0 meant "finish instantly"; there is no window that
+        # expresses that, so fall back to the default window length.
+        window = timeout or DEFAULT_FINISHED_WINDOW
+        migrated[CONF_FINISHED_WINDOW] = window
+        migrated[CONF_FINISHED_ENERGY_THRESHOLD] = round(threshold * window / SECONDS_PER_HOUR, 3)
+        return migrated
+
+    hass.config_entries.async_update_entry(
+        entry,
+        data=_migrate(dict(entry.data)),
+        options=_migrate(dict(entry.options)),
+        version=2,
+    )
+    LOGGER.info("Migrated %s to energy-window detection", entry.title)
+    return True
 
 
 async def async_setup_entry(

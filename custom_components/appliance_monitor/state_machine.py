@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections import deque
+from datetime import timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+WH_PER_KWH = 1000.0
 
 
 class ApplianceState(StrEnum):
@@ -14,29 +18,45 @@ class ApplianceState(StrEnum):
 
     IDLE = "idle"
     RUNNING = "running"
+    POST_CYCLE = "post_cycle"
     FINISHED = "finished"
     DISCONNECTED = "disconnected"
 
 
 class ApplianceStateMachine:
-    """Tracks appliance state based on power readings."""
+    """
+    Tracks appliance state from power readings.
 
-    def __init__(
+    Starting is decided on instantaneous power, so a cycle is picked up at
+    once. Ending is decided on the energy consumed within a sliding window,
+    which rides through the low-draw phases mid-cycle that instantaneous
+    thresholds cannot tell apart from a finished cycle.
+    """
+
+    # Mirrors the config-entry options one-to-one; bundling them into a
+    # dataclass would only move the argument list somewhere else.
+    def __init__(  # noqa: PLR0913
         self,
+        *,
         start_threshold: float,
-        idle_threshold: float,
-        idle_timeout_seconds: float,
         start_delay_seconds: float = 0,
+        finished_window_seconds: float,
+        finished_energy_threshold_wh: float,
+        post_cycle_enabled: bool = False,
+        post_cycle_window_seconds: float = 0,
+        post_cycle_energy_threshold_wh: float = 0,
     ) -> None:
-        """Initialise with threshold and timeout values."""
+        """Initialise with threshold, window and energy threshold values."""
         self._start_threshold = start_threshold
-        self._idle_threshold = idle_threshold
-        self._idle_timeout_seconds = idle_timeout_seconds
         self._start_delay_seconds = start_delay_seconds
+        self._finished_window_seconds = finished_window_seconds
+        self._finished_energy_threshold_wh = finished_energy_threshold_wh
+        self._post_cycle_enabled = post_cycle_enabled
+        self._post_cycle_window_seconds = post_cycle_window_seconds
+        self._post_cycle_energy_threshold_wh = post_cycle_energy_threshold_wh
         self._state: ApplianceState = ApplianceState.IDLE
         self._state_before_disconnect: ApplianceState = ApplianceState.IDLE
         self._above_threshold_since: datetime | None = None
-        self._below_idle_since: datetime | None = None
         self._cycle_start: datetime | None = None
         self._cycle_duration_seconds: float = 0.0
         self._total_operating_seconds: float = 0.0
@@ -45,6 +65,15 @@ class ApplianceStateMachine:
         self._last_update: datetime | None = None
         self._last_power: float = 0.0
         self._cycle_count: int = 0
+        # (timestamp, total_energy_kwh) samples spanning the longest window.
+        self._samples: deque[tuple[datetime, float]] = deque()
+
+    @property
+    def _longest_window_seconds(self) -> float:
+        """Return the longest window any check needs samples for."""
+        if self._post_cycle_enabled:
+            return max(self._finished_window_seconds, self._post_cycle_window_seconds)
+        return self._finished_window_seconds
 
     def update(self, power: float, now: datetime) -> None:
         """Advance the state machine with a new power reading."""
@@ -60,22 +89,59 @@ class ApplianceStateMachine:
             avg_power_w = (self._last_power + power) / 2.0
             energy_kwh = avg_power_w * dt_seconds / 3_600_000.0
             self._total_energy_kwh += energy_kwh
+            # The cycle keeps consuming while it idles after the programme, so
+            # its energy runs on to FINISHED. Its duration does not: the work
+            # stopped when RUNNING did.
+            if self._state in {ApplianceState.RUNNING, ApplianceState.POST_CYCLE}:
+                self._cycle_energy_kwh += energy_kwh
             if self._state is ApplianceState.RUNNING:
                 self._total_operating_seconds += dt_seconds
-                self._cycle_energy_kwh += energy_kwh
                 if self._cycle_start is not None:
                     self._cycle_duration_seconds = max(
                         0.0, (now - self._cycle_start).total_seconds()
                     )
         self._last_update = now
         self._last_power = power
+        self._record_sample(now)
 
         if self._state is ApplianceState.IDLE:
             self._handle_idle(power, now)
         elif self._state is ApplianceState.RUNNING:
-            self._handle_running(power, now)
+            self._handle_running()
+        elif self._state is ApplianceState.POST_CYCLE:
+            self._handle_post_cycle()
         elif self._state is ApplianceState.FINISHED:
             self._handle_finished(power, now)
+
+    def _record_sample(self, now: datetime) -> None:
+        """Append the running energy total and drop samples past the window."""
+        self._samples.append((now, self._total_energy_kwh))
+        cutoff = now - timedelta(seconds=self._longest_window_seconds)
+        # Keep the newest sample at or before the cutoff — it is the left edge
+        # of the window; everything older than that one is dead weight.
+        while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
+            self._samples.popleft()
+
+    def _window_energy_wh(self, window_seconds: float) -> float | None:
+        """
+        Return Wh consumed over the trailing window, or None if not covered yet.
+
+        None means "no verdict": the samples do not span the full window, as
+        after a restart, a source outage, or early in a cycle. Every caller
+        must treat that as "keep the current state".
+        """
+        if len(self._samples) < 2:  # noqa: PLR2004
+            return None
+        now, total = self._samples[-1]
+        cutoff = now - timedelta(seconds=window_seconds)
+        base: float | None = None
+        for timestamp, value in self._samples:
+            if timestamp > cutoff:
+                break
+            base = value
+        if base is None:
+            return None
+        return (total - base) * WH_PER_KWH
 
     def _try_start_running(self, now: datetime) -> None:
         """Transition to RUNNING if the start delay has elapsed."""
@@ -83,12 +149,18 @@ class ApplianceStateMachine:
             self._above_threshold_since = now
         elapsed = (now - self._above_threshold_since).total_seconds()
         if elapsed >= self._start_delay_seconds:
-            self._state = ApplianceState.RUNNING
-            self._cycle_start = now
-            self._cycle_duration_seconds = 0.0
-            self._cycle_energy_kwh = 0.0
-            self._below_idle_since = None
-            self._above_threshold_since = None
+            self._begin_cycle(now)
+
+    def _begin_cycle(self, now: datetime) -> None:
+        """Enter RUNNING and start a fresh cycle."""
+        self._state = ApplianceState.RUNNING
+        self._cycle_start = now
+        self._cycle_duration_seconds = 0.0
+        self._cycle_energy_kwh = 0.0
+        self._above_threshold_since = None
+        # Samples from before the cycle would make it look idle at once.
+        self._samples.clear()
+        self._record_sample(now)
 
     def _handle_idle(self, power: float, now: datetime) -> None:
         if power >= self._start_threshold:
@@ -96,21 +168,38 @@ class ApplianceStateMachine:
         else:
             self._above_threshold_since = None
 
-    def _handle_running(self, power: float, now: datetime) -> None:
-        if power < self._idle_threshold:
-            if self._below_idle_since is None:
-                self._below_idle_since = now
-            elapsed = (now - self._below_idle_since).total_seconds()
-            if elapsed >= self._idle_timeout_seconds:
-                self._state = ApplianceState.FINISHED
-                self._cycle_count += 1
-                self._below_idle_since = None
-        else:
-            self._below_idle_since = None
+    def _handle_running(self) -> None:
+        # With the post-cycle phase on, RUNNING only ever hands over to it;
+        # FINISHED is then reached from there, never directly.
+        if self._post_cycle_enabled:
+            consumed = self._window_energy_wh(self._post_cycle_window_seconds)
+            if consumed is not None and consumed < self._post_cycle_energy_threshold_wh:
+                self._end_cycle(ApplianceState.POST_CYCLE)
+            return
+        consumed = self._window_energy_wh(self._finished_window_seconds)
+        if consumed is not None and consumed < self._finished_energy_threshold_wh:
+            self._end_cycle(ApplianceState.FINISHED)
+
+    def _handle_post_cycle(self) -> None:
+        # FINISHED is the only way out. A new cycle cannot start from here:
+        # the draw while idling after a cycle can sit above start_threshold (a
+        # washing machine holds 10-16 W), so any live-power check would restart
+        # the cycle over and over. The cost is that loading and starting the
+        # appliance again before it goes quiet leaves it stuck in this phase —
+        # the reset button is the way out until that proves worth configuring.
+        consumed = self._window_energy_wh(self._finished_window_seconds)
+        if consumed is not None and consumed < self._finished_energy_threshold_wh:
+            self._state = ApplianceState.FINISHED
 
     _handle_finished = (
         _handle_idle  # FINISHED handles the start spike exactly like IDLE
     )
+
+    def _end_cycle(self, state: ApplianceState) -> None:
+        """Leave RUNNING for *state*, counting the cycle exactly once."""
+        self._state = state
+        self._cycle_count += 1
+        self._above_threshold_since = None
 
     def reset(self) -> None:
         """
@@ -121,11 +210,11 @@ class ApplianceStateMachine:
         self._state = ApplianceState.IDLE
         self._state_before_disconnect = ApplianceState.IDLE
         self._above_threshold_since = None
-        self._below_idle_since = None
         self._cycle_start = None
         self._cycle_duration_seconds = 0.0
         self._cycle_energy_kwh = 0.0
         self._last_update = None
+        self._samples.clear()
 
     def mark_unloaded(self) -> None:
         """
@@ -147,16 +236,16 @@ class ApplianceStateMachine:
         Mark the source sensor as unavailable.
 
         Behaves like an HA restart: state and totals are preserved, but no
-        energy is integrated and no hysteresis timers advance until a fresh
-        sample arrives.
+        energy is integrated and the sample window is dropped, so no check
+        runs again until a fresh window has been collected.
         """
         if self._state is ApplianceState.DISCONNECTED:
             return
         self._state_before_disconnect = self._state
         self._state = ApplianceState.DISCONNECTED
         self._above_threshold_since = None
-        self._below_idle_since = None
         self._last_update = None
+        self._samples.clear()
 
     def reset_cycle_count(self) -> None:
         """Zero the cycle counter without affecting state or operating time."""
@@ -198,13 +287,23 @@ class ApplianceStateMachine:
 
     @property
     def is_running(self) -> bool:
-        """Return True while the appliance is running."""
+        """Return True while the appliance is actively working."""
         return self._state is ApplianceState.RUNNING
 
     @property
+    def is_post_cycle(self) -> bool:
+        """Return True while the appliance idles after a completed cycle."""
+        return self._state is ApplianceState.POST_CYCLE
+
+    @property
     def is_finished(self) -> bool:
-        """Return True when a cycle just finished."""
-        return self._state is ApplianceState.FINISHED
+        """
+        Return True once the cycle is done.
+
+        Covers POST_CYCLE as well: the load is ready at that point, which is
+        what an automation waiting on "finished" cares about.
+        """
+        return self._state in {ApplianceState.POST_CYCLE, ApplianceState.FINISHED}
 
     @property
     def cycle_start(self) -> datetime | None:
@@ -216,7 +315,7 @@ class ApplianceStateMachine:
         """
         Return wall-clock cycle duration in seconds.
 
-        Frozen at FINISHED, zero before first cycle and after reset.
+        Frozen when RUNNING ends, zero before first cycle and after reset.
         """
         return self._cycle_duration_seconds
 
@@ -230,7 +329,7 @@ class ApplianceStateMachine:
         """
         Return energy consumed during the current or last cycle in kWh.
 
-        Frozen at FINISHED, zero before first cycle and after reset.
+        Frozen when RUNNING ends, zero before first cycle and after reset.
         """
         return self._cycle_energy_kwh
 

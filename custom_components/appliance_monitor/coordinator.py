@@ -10,11 +10,19 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.dt import utcnow
 
 from .const import (
-    CONF_IDLE_THRESHOLD,
-    CONF_IDLE_TIMEOUT,
+    CONF_FINISHED_ENERGY_THRESHOLD,
+    CONF_FINISHED_WINDOW,
+    CONF_POST_CYCLE_ENABLED,
+    CONF_POST_CYCLE_ENERGY_THRESHOLD,
+    CONF_POST_CYCLE_WINDOW,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
+    DEFAULT_FINISHED_ENERGY_THRESHOLD,
+    DEFAULT_FINISHED_WINDOW,
+    DEFAULT_POST_CYCLE_ENABLED,
+    DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+    DEFAULT_POST_CYCLE_WINDOW,
     DEFAULT_START_DELAY,
     DOMAIN,
     LOGGER,
@@ -50,9 +58,22 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config_entry = config_entry
         self._state_machine = ApplianceStateMachine(
             start_threshold=self._conf(CONF_START_THRESHOLD),
-            idle_threshold=self._conf(CONF_IDLE_THRESHOLD),
-            idle_timeout_seconds=self._conf(CONF_IDLE_TIMEOUT),
             start_delay_seconds=self._conf(CONF_START_DELAY, DEFAULT_START_DELAY),
+            finished_window_seconds=self._conf(
+                CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW
+            ),
+            finished_energy_threshold_wh=self._conf(
+                CONF_FINISHED_ENERGY_THRESHOLD, DEFAULT_FINISHED_ENERGY_THRESHOLD
+            ),
+            post_cycle_enabled=self._conf(
+                CONF_POST_CYCLE_ENABLED, DEFAULT_POST_CYCLE_ENABLED
+            ),
+            post_cycle_window_seconds=self._conf(
+                CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW
+            ),
+            post_cycle_energy_threshold_wh=self._conf(
+                CONF_POST_CYCLE_ENERGY_THRESHOLD, DEFAULT_POST_CYCLE_ENERGY_THRESHOLD
+            ),
         )
         self._store: Store[dict[str, Any]] = Store(
             hass,
@@ -165,6 +186,7 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "state": str(self._state_machine.state),
             "running": self._state_machine.is_running,
             "finished": self._state_machine.is_finished,
+            "post_cycle": self._state_machine.is_post_cycle,
             "cycle_start": self._state_machine.cycle_start,
             "cycle_duration": self._state_machine.cycle_duration_seconds,
             "cycle_energy": self._state_machine.cycle_energy_kwh,

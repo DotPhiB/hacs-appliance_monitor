@@ -33,6 +33,11 @@ ENTITY_DESCRIPTIONS = (
         translation_key="finished",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    BinarySensorEntityDescription(
+        key="post_cycle",
+        translation_key="post_cycle",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 )
 
 

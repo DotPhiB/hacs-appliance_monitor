@@ -10,6 +10,13 @@
                     "off": "Idle",
                     "on": "Finished"
                 }
+            },
+            "post_cycle": {
+                "name": "Post-cycle",
+                "state": {
+                    "off": "No",
+                    "on": "Post-cycle"
+                }
             }
         },
         "button": {
@@ -29,6 +36,7 @@
                 "state": {
                     "idle": "Idle",
                     "running": "Running",
+                    "post_cycle": "Post-cycle",
                     "finished": "Finished",
                     "disconnected": "Disconnected"
                 }
@@ -60,14 +68,20 @@
                     "power_sensor": "Power sensor",
                     "start_threshold": "Start threshold (W)",
                     "start_delay": "Start delay (s)",
-                    "idle_threshold": "Idle threshold (W)",
-                    "idle_timeout": "Idle timeout (s)"
+                    "finished_window": "Finished window (s)",
+                    "finished_energy_threshold": "Finished energy threshold (Wh)",
+                    "post_cycle_enabled": "Detect post-cycle phase",
+                    "post_cycle_window": "Post-cycle window (s)",
+                    "post_cycle_energy_threshold": "Post-cycle energy threshold (Wh)"
                 },
                 "data_description": {
-                    "start_threshold": "Power above this level signals the appliance has started.",
+                    "start_threshold": "Power above this level signals the appliance has started. Starting is judged on the live reading, so a cycle is picked up immediately.",
                     "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
-                    "idle_threshold": "Power below this level signals the appliance is idle or about to finish.",
-                    "idle_timeout": "Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so the appliance keeps running through intermediate low-draw phases. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
+                    "finished_window": "Length of the sliding window the cycle is judged over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected.",
+                    "finished_energy_threshold": "The cycle counts as finished once less than this much energy is used within the window. 0.3 Wh over 5 minutes is about 3.6 W average.",
+                    "post_cycle_enabled": "Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling. Splits the end of a cycle into two states: the programme being done, and the appliance going quiet afterwards. Without it, both are reported as one 'finished'.",
+                    "post_cycle_window": "Sliding window for the post-cycle check. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
+                    "post_cycle_energy_threshold": "The programme counts as done once less than this much energy is used within the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase — 2.7 Wh over 5 minutes is about 32 W average."
                 }
             },
             "confirm_non_power": {
@@ -90,14 +104,20 @@
                 "data": {
                     "start_threshold": "Start threshold (W)",
                     "start_delay": "Start delay (s)",
-                    "idle_threshold": "Idle threshold (W)",
-                    "idle_timeout": "Idle timeout (s)"
+                    "finished_window": "Finished window (s)",
+                    "finished_energy_threshold": "Finished energy threshold (Wh)",
+                    "post_cycle_enabled": "Detect post-cycle phase",
+                    "post_cycle_window": "Post-cycle window (s)",
+                    "post_cycle_energy_threshold": "Post-cycle energy threshold (Wh)"
                 },
                 "data_description": {
-                    "start_threshold": "Power above this level signals the appliance has started.",
+                    "start_threshold": "Power above this level signals the appliance has started. Starting is judged on the live reading, so a cycle is picked up immediately.",
                     "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
-                    "idle_threshold": "Power below this level signals the appliance is idle or about to finish.",
-                    "idle_timeout": "Seconds power must stay below the idle threshold before the cycle is marked finished. Brief dips above the threshold reset this timer, so the appliance keeps running through intermediate low-draw phases. Set to 0 for an instant transition — useful for appliances that drop straight to zero on completion."
+                    "finished_window": "Length of the sliding window the cycle is judged over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected.",
+                    "finished_energy_threshold": "The cycle counts as finished once less than this much energy is used within the window. 0.3 Wh over 5 minutes is about 3.6 W average.",
+                    "post_cycle_enabled": "Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling. Splits the end of a cycle into two states: the programme being done, and the appliance going quiet afterwards. Without it, both are reported as one 'finished'.",
+                    "post_cycle_window": "Sliding window for the post-cycle check. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
+                    "post_cycle_energy_threshold": "The programme counts as done once less than this much energy is used within the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase — 2.7 Wh over 5 minutes is about 32 W average."
                 }
             }
         }

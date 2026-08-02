@@ -18,8 +18,8 @@ from custom_components.appliance_monitor.state_machine import (
 POWER_SENSOR = "sensor.fake_power"
 
 START_THRESHOLD = 10.0
-IDLE_THRESHOLD = 3.0
-IDLE_TIMEOUT_SECS = 60.0
+FINISHED_WINDOW = 300.0
+FINISHED_ENERGY_WH = 0.3
 
 
 def _make_coordinator() -> ApplianceMonitorCoordinator:
@@ -31,8 +31,8 @@ def _make_coordinator() -> ApplianceMonitorCoordinator:
     coordinator.config_entry.options = {}
     coordinator._state_machine = ApplianceStateMachine(
         start_threshold=START_THRESHOLD,
-        idle_threshold=IDLE_THRESHOLD,
-        idle_timeout_seconds=IDLE_TIMEOUT_SECS,
+        finished_window_seconds=FINISHED_WINDOW,
+        finished_energy_threshold_wh=FINISHED_ENERGY_WH,
     )
     coordinator._store = MagicMock()
     coordinator._store.async_load = AsyncMock(return_value=None)
@@ -128,15 +128,18 @@ def test_finished_transition_persists_immediately() -> None:
         _set_source_state(coordinator, "50.0")
         _update(coordinator)  # → RUNNING (no FINISHED, debounced save)
 
-        mock_utcnow.return_value = at(10)
         _set_source_state(coordinator, "0.0")
-        _update(coordinator)  # below idle, timer armed (no FINISHED yet)
+        elapsed = 10.0
+        while elapsed < FINISHED_WINDOW:
+            mock_utcnow.return_value = at(elapsed)
+            _update(coordinator)  # quiet, but the window is not covered yet
+            elapsed += 10.0
 
         # Sanity: no immediate save up to this point.
         assert coordinator._store.async_save.call_count == 0
 
-        mock_utcnow.return_value = at(10 + IDLE_TIMEOUT_SECS)
-        _update(coordinator)  # crosses idle_timeout boundary → FINISHED
+        mock_utcnow.return_value = at(FINISHED_WINDOW)
+        _update(coordinator)  # first fully covered window → FINISHED
 
     assert coordinator._state_machine.state is ApplianceState.FINISHED
     assert coordinator._store.async_save.call_count == 1
