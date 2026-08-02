@@ -19,7 +19,8 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 ## Features
 
 - Detects **running** and **finished** states from a single power sensor
-- Exposes a single primary state entity plus diagnostic sensors — automations work off either
+- Exposes state, cycle duration and cycle energy up front, plus diagnostic sensors — automations work off either
+- **Unloaded** button to acknowledge a finished cycle, and a **Reset State** escape hatch for a machine stuck in the wrong state
 - Keeps the cycle in RUNNING through intermediate low-draw phases (spin-pause, dishwasher drying, oven holding temp) — only marks FINISHED when power stays low past the idle timeout
 - Optional start delay to ignore brief startup spikes (e.g. inrush current when the appliance is first plugged in)
 - Reports a **disconnected** state when the source power sensor goes unavailable, without corrupting energy totals or firing spurious transitions across the gap
@@ -62,7 +63,7 @@ All fields except the power sensor can be changed at any time via **Settings →
 
 ## Entities
 
-Each configured appliance exposes one primary entity, a set of diagnostic entities, and config controls. Diagnostic and config entities are hidden from the default device card but are fully usable in automations, templates, and other integrations.
+Each configured appliance exposes a small primary set, a set of diagnostic entities, and config controls. Diagnostic and config entities are hidden from the default device card but are fully usable in automations, templates, and other integrations.
 
 ### Primary
 
@@ -80,19 +81,11 @@ Each configured appliance exposes one primary entity, a set of diagnostic entiti
 | `binary_sensor.<name>_running` | On while the appliance is actively running |
 | `binary_sensor.<name>_finished` | On after a cycle finishes; clears when a new cycle starts or the state is reset |
 | `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
-| `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in minutes (frozen at FINISHED) |
-| `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
 | `sensor.<name>_cycle_start` | Timestamp when the current/last cycle started |
 | `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING, displayed as `h min` — survives state resets |
 | `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) |
 
 > **Energy Dashboard note**: `total_energy` is exposed as `device_class=ENERGY` so HA will offer it under Settings → Energy → "Add consumption." Prefer your source meter's own energy sensor if it exposes one — those are measured directly by the device, while this one is integrated from power readings (less accurate). Use this one only when your source provides power but no energy.
-
-### Controls
-
-| Entity | Action |
-|---|---|
-| `button.<name>_unloaded` | Acknowledge a finished cycle: FINISHED → IDLE. A no-op in any other state, and the last cycle's duration/energy/start stay readable. This is the one to wire into notifications. |
 
 ### Config
 
