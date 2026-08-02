@@ -19,7 +19,6 @@ from .const import (
     CONF_IDLE_THRESHOLD,
     CONF_IDLE_TIMEOUT,
     CONF_POWER_SENSOR,
-    DEFAULT_FINISHED_WINDOW,
     DEFAULT_IDLE_THRESHOLD,
     DEFAULT_IDLE_TIMEOUT,
     DOMAIN,
@@ -56,11 +55,15 @@ async def async_migrate_entry(
         migrated = dict(values)
         threshold = migrated.pop(CONF_IDLE_THRESHOLD, DEFAULT_IDLE_THRESHOLD)
         timeout = migrated.pop(CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT)
-        # A timeout of 0 meant "finish instantly"; there is no window that
-        # expresses that, so fall back to the default window length.
-        window = timeout or DEFAULT_FINISHED_WINDOW
-        migrated[CONF_FINISHED_WINDOW] = window
-        migrated[CONF_FINISHED_ENERGY_THRESHOLD] = round(threshold * window / SECONDS_PER_HOUR, 3)
+        migrated[CONF_FINISHED_WINDOW] = timeout
+        # A timeout of 0 meant "finish on the first low reading", which a
+        # zero-length window reproduces exactly — the threshold is then read
+        # as watts, so the old value carries over untouched.
+        migrated[CONF_FINISHED_ENERGY_THRESHOLD] = (
+            threshold
+            if not timeout
+            else round(threshold * timeout / SECONDS_PER_HOUR, 3)
+        )
         return migrated
 
     hass.config_entries.async_update_entry(

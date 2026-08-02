@@ -37,7 +37,7 @@ def _window_selector() -> selector.NumberSelector:
     """Build the selector for a sliding-window length."""
     return selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=10,
+            min=0,
             max=3600,
             step=10,
             unit_of_measurement="s",

@@ -55,8 +55,8 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 | Power sensor | HA sensor entity reporting live power in watts | — |
 | Start threshold (W) | Power above this level means the appliance has started | 10 W |
 | Start delay (s) | Seconds power must stay at or above the start threshold before a cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed. | 0 s |
-| Finished window (s) | Length of the sliding window the cycle is judged over. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. | 300 s |
-| Finished energy threshold (Wh) | The cycle counts as finished once less than this much energy is used within the window | 0.3 Wh |
+| Finished window (s) | Length of the sliding window the cycle is judged over. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 for an instant verdict on each reading. | 300 s |
+| Finished energy threshold (Wh) | The cycle counts as finished once less than this much energy is used within the window. Read as **watts** when the window is 0. | 0.3 Wh |
 | Detect post-cycle phase | Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling | off |
 | Post-cycle window (s) | Sliding window for the post-cycle check | 300 s |
 | Post-cycle energy threshold (Wh) | The programme counts as done once less than this much energy is used within the post-cycle window | 2.7 Wh |
@@ -68,6 +68,8 @@ All fields except the power sensor can be changed at any time via **Settings →
 Live power cannot tell a soaking washing machine from a finished one — mid-cycle both sit near zero. The old idle threshold plus timeout could only paper over that with a long timeout, and any single sample above the threshold re-armed it, so a machine blipping 2–3 W in standby stayed "running" long after the programme had ended.
 
 Energy over a sliding window has no such blind spot: brief blips are absorbed rather than treated as evidence of life, and a genuinely quiet appliance crosses the threshold on schedule. Starting is still judged on live power, because a cycle should be picked up at once.
+
+The two are the same measurement at different scales. Energy over a window is the rise of the cumulative energy curve, and over the window's length that is an average rate — as the window shrinks, the rate converges on the power at that instant. A window of 0 is that limit: the threshold is then read in watts and compared against each reading as it arrives, which is exactly how the pre-2.0 idle threshold behaved.
 
 On real washing-machine cycles, being able to detect the post-cycle phase moved the end-of-programme signal 40 minutes earlier than the previous release reported it.
 

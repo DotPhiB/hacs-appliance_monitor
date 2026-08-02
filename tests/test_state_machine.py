@@ -206,6 +206,37 @@ class TestRunningTransitions:
         assert sm.cycle_duration_seconds == pytest.approx(frozen)
 
 
+class TestZeroWindow:
+    """A window of 0 takes the same check at a point: watts, not Wh."""
+
+    @pytest.fixture
+    def instant_sm(self) -> ApplianceStateMachine:
+        """Return a machine that finishes on the first reading under 3 W."""
+        return ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=0,
+            finished_energy_threshold_wh=3.0,  # read as watts
+        )
+
+    def test_finishes_on_first_low_reading(
+        self, instant_sm: ApplianceStateMachine
+    ) -> None:
+        """No window to fill — one sample below the threshold ends the cycle."""
+        instant_sm.update(ABOVE_START, _t(0))
+        instant_sm.update(WORKING, _t(10))
+        assert instant_sm.state is ApplianceState.RUNNING
+        instant_sm.update(QUIET, _t(20))
+        assert instant_sm.state is ApplianceState.FINISHED
+
+    def test_stays_running_above_threshold(
+        self, instant_sm: ApplianceStateMachine
+    ) -> None:
+        """Readings at or above the threshold keep the cycle open."""
+        instant_sm.update(ABOVE_START, _t(0))
+        _feed(instant_sm, 5.0, 10, 600)
+        assert instant_sm.state is ApplianceState.RUNNING
+
+
 class TestPostCycle:
     """The optional phase between a finished programme and a quiet appliance."""
 

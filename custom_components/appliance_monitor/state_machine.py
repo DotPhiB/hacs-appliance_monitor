@@ -143,6 +143,24 @@ class ApplianceStateMachine:
             return None
         return (total - base) * WH_PER_KWH
 
+    def _is_below(self, window_seconds: float, threshold: float) -> bool | None:
+        """
+        Return whether the appliance is under *threshold*, or None for no verdict.
+
+        The windowed measure is the rise of the cumulative energy curve; over
+        the window's length that is an average rate, and as the window shrinks
+        the rate converges on the power at that instant. A window of 0 is
+        therefore the same check taken at a point, with the threshold read in
+        watts rather than Wh — exact for appliances that drop straight to zero,
+        and as fast as the source reports.
+        """
+        if window_seconds <= 0:
+            return self._last_power < threshold
+        consumed = self._window_energy_wh(window_seconds)
+        if consumed is None:
+            return None
+        return consumed < threshold
+
     def _try_start_running(self, now: datetime) -> None:
         """Transition to RUNNING if the start delay has elapsed."""
         if self._above_threshold_since is None:
@@ -172,12 +190,16 @@ class ApplianceStateMachine:
         # With the post-cycle phase on, RUNNING only ever hands over to it;
         # FINISHED is then reached from there, never directly.
         if self._post_cycle_enabled:
-            consumed = self._window_energy_wh(self._post_cycle_window_seconds)
-            if consumed is not None and consumed < self._post_cycle_energy_threshold_wh:
+            if self._is_below(
+                self._post_cycle_window_seconds,
+                self._post_cycle_energy_threshold_wh,
+            ):
                 self._end_cycle(ApplianceState.POST_CYCLE)
             return
-        consumed = self._window_energy_wh(self._finished_window_seconds)
-        if consumed is not None and consumed < self._finished_energy_threshold_wh:
+        if self._is_below(
+            self._finished_window_seconds,
+            self._finished_energy_threshold_wh,
+        ):
             self._end_cycle(ApplianceState.FINISHED)
 
     def _handle_post_cycle(self) -> None:
@@ -187,8 +209,10 @@ class ApplianceStateMachine:
         # the cycle over and over. The cost is that loading and starting the
         # appliance again before it goes quiet leaves it stuck in this phase —
         # the reset button is the way out until that proves worth configuring.
-        consumed = self._window_energy_wh(self._finished_window_seconds)
-        if consumed is not None and consumed < self._finished_energy_threshold_wh:
+        if self._is_below(
+            self._finished_window_seconds,
+            self._finished_energy_threshold_wh,
+        ):
             self._state = ApplianceState.FINISHED
 
     _handle_finished = (
@@ -329,7 +353,8 @@ class ApplianceStateMachine:
         """
         Return energy consumed during the current or last cycle in kWh.
 
-        Frozen when RUNNING ends, zero before first cycle and after reset.
+        Keeps counting through the post-cycle phase and freezes on reaching
+        FINISHED; zero before first cycle and after reset.
         """
         return self._cycle_energy_kwh
 
