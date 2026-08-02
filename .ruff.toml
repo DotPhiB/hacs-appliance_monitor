@@ -12,6 +12,7 @@ ignore = [
     "D203", # no-blank-line-before-class (incompatible with formatter)
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
+    "CPY001", # per-file copyright notices; the root LICENSE covers the project
     "ISC001", # incompatible with formatter
 ]
 
