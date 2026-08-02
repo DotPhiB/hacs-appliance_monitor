@@ -4,6 +4,13 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
+### Added
+- `button.<name>_unloaded` — acknowledges a finished cycle (FINISHED → IDLE) and is a no-op in every other state, so a stray press cannot cut a running cycle short. Last-cycle duration, energy and start timestamp are preserved.
+
+### Changed
+- `cycle_duration` and `cycle_energy` are no longer diagnostic entities — the current cycle's figures show on the default device card next to the state and the Unloaded button.
+- `cycle_duration` and `total_operating_time` default to an hours display (`1 h 32 min`) instead of raw seconds. Values are still stored in seconds; the display unit stays switchable per entity, and existing entities keep whatever unit they are set to.
+
 ## [1.0.0] - 2026-05-30
 
 Initial public release.

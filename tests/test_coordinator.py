@@ -161,6 +161,22 @@ def test_reset_cycle_count_persists_immediately() -> None:
     coordinator._store.async_save.assert_called_once()
 
 
+def test_unloaded_persists_immediately() -> None:
+    """Unloaded button writes the snapshot immediately."""
+    coordinator = _make_coordinator()
+    asyncio.run(coordinator.unloaded())
+    coordinator._store.async_save.assert_called_once()
+
+
+def test_unloaded_does_not_stop_a_running_cycle() -> None:
+    """Pressing Unloaded mid-cycle leaves the appliance RUNNING."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    _update(coordinator)  # → RUNNING
+    asyncio.run(coordinator.unloaded())
+    assert coordinator._state_machine.state is ApplianceState.RUNNING
+
+
 def test_snapshot_roundtrip_preserves_state_before_disconnect() -> None:
     """state_before_disconnect persists across an HA-restart-shaped roundtrip."""
     src = _make_coordinator()

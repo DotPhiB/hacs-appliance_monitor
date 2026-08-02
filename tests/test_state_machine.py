@@ -357,6 +357,77 @@ class TestReset:
         assert sm.cycle_duration_seconds == 0.0
 
 
+class TestUnloaded:
+    """mark_unloaded() acknowledges a finished cycle and is inert elsewhere."""
+
+    def _finish(self, sm: ApplianceStateMachine) -> None:
+        """Drive sm through one complete cycle into FINISHED."""
+        sm.update(ABOVE_START, _t(0))
+        sm.update(BELOW_IDLE, _t(10))
+        sm.update(BELOW_IDLE, _t(10 + IDLE_TIMEOUT_SECS + 1))
+
+    def test_finished_becomes_idle(self, sm: ApplianceStateMachine) -> None:
+        """FINISHED → IDLE."""
+        self._finish(sm)
+        sm.mark_unloaded()
+        assert sm.state is ApplianceState.IDLE
+
+    def test_running_is_untouched(self, sm: ApplianceStateMachine) -> None:
+        """A press while RUNNING must not cut the cycle short."""
+        sm.update(ABOVE_START, _t(0))
+        sm.mark_unloaded()
+        assert sm.state is ApplianceState.RUNNING
+
+    def test_idle_is_untouched(self, sm: ApplianceStateMachine) -> None:
+        """A press while IDLE is a no-op."""
+        sm.update(BELOW_IDLE, _t(0))
+        sm.mark_unloaded()
+        assert sm.state is ApplianceState.IDLE
+
+    def test_keeps_last_cycle_metrics(self, sm: ApplianceStateMachine) -> None:
+        """The last cycle's duration, energy and start timestamp are kept."""
+        self._finish(sm)
+        duration_before = sm.cycle_duration_seconds
+        energy_before = sm.cycle_energy_kwh
+        sm.mark_unloaded()
+        assert sm.cycle_duration_seconds == pytest.approx(duration_before)
+        assert sm.cycle_energy_kwh == pytest.approx(energy_before)
+        assert sm.cycle_start is not None
+
+    def test_preserves_cycle_count(self, sm: ApplianceStateMachine) -> None:
+        """Acknowledging a cycle does not un-count it."""
+        self._finish(sm)
+        sm.mark_unloaded()
+        assert sm.cycle_count == 1
+
+    def test_while_disconnected_resumes_idle(self, sm: ApplianceStateMachine) -> None:
+        """Unloaded during a source outage: reconnect resumes IDLE, not FINISHED."""
+        self._finish(sm)
+        sm.mark_disconnected()
+        sm.mark_unloaded()
+        assert sm.state is ApplianceState.DISCONNECTED
+        assert sm.state_before_disconnect is ApplianceState.IDLE
+        sm.update(BELOW_IDLE, _t(500))
+        assert sm.state is ApplianceState.IDLE
+
+    def test_while_disconnected_from_running_is_inert(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """A disconnect mid-cycle still resumes RUNNING after a stray press."""
+        sm.update(ABOVE_START, _t(0))
+        sm.mark_disconnected()
+        sm.mark_unloaded()
+        assert sm.state_before_disconnect is ApplianceState.RUNNING
+
+    def test_new_cycle_starts_normally_after(self, sm: ApplianceStateMachine) -> None:
+        """A fresh cycle begins as usual once the appliance is unloaded."""
+        self._finish(sm)
+        sm.mark_unloaded()
+        sm.update(ABOVE_START, _t(300))
+        assert sm.state is ApplianceState.RUNNING
+        assert sm.cycle_duration_seconds == 0.0
+
+
 class TestCycleCount:
     """cycle_count increments on FINISHED and is zeroed by reset_cycle_count()."""
 

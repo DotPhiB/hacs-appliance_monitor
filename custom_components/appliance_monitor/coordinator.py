@@ -180,6 +180,12 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_persist_now()
         self.async_set_updated_data(self._current_data())
 
+    async def unloaded(self) -> None:
+        """Acknowledge a finished cycle: FINISHED to IDLE, metrics kept."""
+        self._state_machine.mark_unloaded()
+        await self._async_persist_now()
+        self.async_set_updated_data(self._current_data())
+
     async def reset_cycle_count(self) -> None:
         """Zero the cycle counter without affecting the current state."""
         self._state_machine.reset_cycle_count()

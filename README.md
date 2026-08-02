@@ -69,6 +69,9 @@ Each configured appliance exposes one primary entity, a set of diagnostic entiti
 | Entity | Description |
 |---|---|
 | `sensor.<name>_state` | Current state: `idle`, `running`, `finished`, or `disconnected` |
+| `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds, displayed as `h min` (frozen at FINISHED) |
+| `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
+| `button.<name>_unloaded` | Acknowledge a finished cycle: FINISHED → IDLE. A no-op in any other state, and the last cycle's duration/energy/start stay readable. This is the one to wire into notifications. |
 
 ### Diagnostic
 
@@ -77,20 +80,28 @@ Each configured appliance exposes one primary entity, a set of diagnostic entiti
 | `binary_sensor.<name>_running` | On while the appliance is actively running |
 | `binary_sensor.<name>_finished` | On after a cycle finishes; clears when a new cycle starts or the state is reset |
 | `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
-| `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds (frozen at FINISHED) |
+| `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in minutes (frozen at FINISHED) |
 | `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
 | `sensor.<name>_cycle_start` | Timestamp when the current/last cycle started |
-| `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING — survives state resets |
+| `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING, displayed as `h min` — survives state resets |
 | `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) |
 
 > **Energy Dashboard note**: `total_energy` is exposed as `device_class=ENERGY` so HA will offer it under Settings → Energy → "Add consumption." Prefer your source meter's own energy sensor if it exposes one — those are measured directly by the device, while this one is integrated from power readings (less accurate). Use this one only when your source provides power but no energy.
+
+### Controls
+
+| Entity | Action |
+|---|---|
+| `button.<name>_unloaded` | Acknowledge a finished cycle: FINISHED → IDLE. A no-op in any other state, and the last cycle's duration/energy/start stay readable. This is the one to wire into notifications. |
 
 ### Config
 
 | Entity | Action |
 |---|---|
-| `button.<name>_reset_state` | Reset the appliance state to IDLE (clears finished notification; cycle count and totals preserved) |
+| `button.<name>_reset_state` | Force the appliance state to IDLE from *any* state and clear the current cycle's metrics (cycle count and lifetime totals preserved) |
 | `button.<name>_reset_cycle_count` | Zero the cycle counter without affecting state |
+
+> **Reset State vs Unloaded**: `reset_state` is the escape hatch for a machine that got stuck in the wrong state — it works from anywhere and discards the current cycle. `unloaded` is the everyday "I emptied it" acknowledgement — it only fires on a finished cycle, so pressing it mid-wash does nothing.
 
 ---
 
@@ -103,7 +114,7 @@ IDLE ─────────────────────────
  │                                     │ power < idle_threshold
  │                                     │ for idle_timeout seconds continuously
  │                                     ▼
- └────────── reset button ───────── FINISHED
+ └──── reset / unloaded button ──── FINISHED
                                        │
                                        └── power > start_threshold ──► RUNNING (new cycle)
 
@@ -117,7 +128,8 @@ IDLE ─────────────────────────
 - **RUNNING → RUNNING**: brief dips below the idle threshold keep state RUNNING — common during intermediate phases (washer between rinses, dishwasher soaking, etc.). The idle countdown restarts on each recovery.
 - **RUNNING → FINISHED**: power stays below the idle threshold continuously for at least `idle_timeout` seconds.
 - **FINISHED → RUNNING**: a new power spike starts a fresh cycle.
-- **Any → IDLE**: the Reset State button forces the machine back to IDLE.
+- **FINISHED → IDLE**: the Unloaded button acknowledges the cycle. Ignored in every other state, and the last cycle's metrics are kept.
+- **Any → IDLE**: the Reset State button forces the machine back to IDLE and clears the current cycle's metrics.
 
 ### Disconnected handling
 
