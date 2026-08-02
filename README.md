@@ -71,6 +71,8 @@ Energy over a sliding window has no such blind spot: brief blips are absorbed ra
 
 The two are the same measurement at different scales. Energy over a window is the rise of the cumulative energy curve, and over the window's length that is an average rate — as the window shrinks, the rate converges on the power at that instant. A window of 0 is that limit: the threshold is then read in watts and compared against each reading as it arrives, which is exactly how the pre-2.0 idle threshold behaved.
 
+Windows shorter than the source's update interval are measured too, not rounded up to it: the reading straddling the window's edge counts only for the share of its interval that falls inside. So no window length is invalid — a given window and threshold either suit your appliance and its update rate or they don't, which is what the two fields are for.
+
 On real washing-machine cycles, being able to detect the post-cycle phase moved the end-of-programme signal 40 minutes earlier than the previous release reported it.
 
 That gain comes from the mechanism and from where you put the threshold, though — not from the phase itself. Setting the finished threshold above an appliance's idling draw already ends the cycle as soon as the work stops. What the phase adds is the second half of the picture: it keeps reporting until the appliance actually goes quiet, instead of leaving that indistinguishable from a finished cycle. How long that takes is entirely up to the appliance.
@@ -170,6 +172,8 @@ IDLE ─────────────────────────
 **No cycle can start from POST_CYCLE.** The draw during that phase can sit above `start_threshold` — a washing machine holds 10–16 W — so any live-power check would flap between the two states. The trade-off is that starting a new load before the appliance goes quiet leaves it stuck in POST_CYCLE; the reset button is the way out.
 
 No check runs until a full window of readings exists. That single rule covers short cycles, Home Assistant restarts and source outages: an empty window reads as zero energy, which would otherwise finish a cycle instantly.
+
+A sparse source does not delay this. The coordinator samples every 10 seconds regardless of how often the sensor reports — a source that only publishes on change is saying the power is unchanged, and re-reading the same value integrates the consumption correctly. The window therefore fills on schedule whatever the source's update rate, and the guard only applies after a restart or an outage.
 
 ### Disconnected handling
 

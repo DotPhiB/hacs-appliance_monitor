@@ -134,13 +134,24 @@ class ApplianceStateMachine:
             return None
         now, total = self._samples[-1]
         cutoff = now - timedelta(seconds=window_seconds)
-        base: float | None = None
-        for timestamp, value in self._samples:
+        index: int | None = None
+        for i, (timestamp, _) in enumerate(self._samples):
             if timestamp > cutoff:
                 break
-            base = value
-        if base is None:
+            index = i
+        if index is None:
             return None
+        base_time, base = self._samples[index]
+        if index + 1 < len(self._samples):
+            next_time, next_value = self._samples[index + 1]
+            span = (next_time - base_time).total_seconds()
+            if span > 0:
+                # The sample straddling the window edge only counts for the
+                # share of its interval that falls inside, so the measure
+                # covers exactly the window — including windows shorter than
+                # the source's update interval.
+                inside = (cutoff - base_time).total_seconds()
+                base += (next_value - base) * (inside / span)
         return (total - base) * WH_PER_KWH
 
     def _is_below(self, window_seconds: float, threshold: float) -> bool | None:

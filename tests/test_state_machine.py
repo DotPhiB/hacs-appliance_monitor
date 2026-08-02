@@ -237,6 +237,41 @@ class TestZeroWindow:
         assert instant_sm.state is ApplianceState.RUNNING
 
 
+class TestWindowShorterThanUpdates:
+    """A window below the source's update interval still measures its own span."""
+
+    UPDATE_INTERVAL: float = 10.0
+    POWER_W: float = 3600.0  # 10 Wh per 10 s interval
+
+    def _fed(self, window_seconds: float) -> ApplianceStateMachine:
+        """Return a machine fed constant power on a 10 s grid."""
+        sm = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=window_seconds,
+            finished_energy_threshold_wh=6.0,
+        )
+        for i in range(6):
+            sm.update(self.POWER_W, _t(i * self.UPDATE_INTERVAL))
+        return sm
+
+    def test_measures_a_share_of_the_interval(self) -> None:
+        """Half a sample interval of window measures half its energy."""
+        assert self._fed(5.0)._window_energy_wh(5.0) == pytest.approx(5.0)
+
+    def test_matches_the_interval_exactly(self) -> None:
+        """A window equal to the update interval measures it whole."""
+        assert self._fed(10.0)._window_energy_wh(10.0) == pytest.approx(10.0)
+
+    def test_window_length_changes_the_verdict(self) -> None:
+        """The same threshold decides differently at 5 s than at 10 s.
+
+        Sub-interval windows are not rounded up to the update interval: the
+        straddling sample is prorated, so the threshold stays meaningful.
+        """
+        assert self._fed(5.0).state is ApplianceState.FINISHED  # 5 Wh < 6 Wh
+        assert self._fed(10.0).state is ApplianceState.RUNNING  # 10 Wh > 6 Wh
+
+
 class TestPostCycle:
     """The optional phase between a finished programme and a quiet appliance."""
 
