@@ -6,6 +6,8 @@ LOGGER: Logger = getLogger(__package__)
 
 DOMAIN = "appliance_monitor"
 
+SECONDS_PER_HOUR = 3600.0
+
 CONF_POWER_SENSOR = "power_sensor"
 CONF_START_THRESHOLD = "start_threshold"
 CONF_START_DELAY = "start_delay"

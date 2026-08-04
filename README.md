@@ -121,11 +121,14 @@ Each carries attributes for the details the value alone does not show:
 | `window_seconds` | Length of the window being measured |
 | `source_samples_in_window` | How many readings **the source itself published** inside the window. Poll re-reads are excluded, so `0` honestly means the source said nothing at all — which is normal for a quiet appliance, since a plug that only reports on change has nothing to report. The measure still uses every reading; this counts only how much of it came from the appliance. |
 | `trigger` | `source_update` if the source published a new value, `poll` for the 10 s fallback, `command` for a button press |
+| `average_power_w` | The same measure as a rate. The Wh value scales with the window, so a 10 min window reads 20× a 30 s one at the same draw; this does not, which makes the windows directly comparable and keeps the number stable if you later change a window's length |
 | `measures` | `energy` normally; `power` when the window is 0, where the check is a live reading rather than a window |
 | `threshold` / `threshold_unit` | Configured-window sensors only: the value this window is compared against, in `Wh` (or `W` when the window is 0) |
 | `headroom_ratio` | Configured-window sensors only: the window divided by its threshold. **1.0 is the crossing point** — above it the appliance still counts as busy, below it the check fires. This is the number to watch while tuning: a working phase that only reaches 1.2 leaves almost no margin, while the measured washer sits around 600 mid-cycle and drops under 1 when it is done. `null` until the window has a verdict. |
 
-A window reports nothing until it has a full span of readings behind it — the same rule detection uses, so what you see is exactly the number the state machine compares against its threshold.
+A window reports nothing until it has a full span of readings behind it, so after enabling the sensors you wait one window length before the longest ones say anything. They keep measuring across cycle boundaries, though: only *detection* is scoped to the current cycle — a window reaching back past the cycle start would judge the cycle on the quiet that preceded it — while the graph stays continuous.
+
+Windows longer than the appliance's activity all settle on the same value, because they all contain the whole of it. That is the measurement working, not a fault: what distinguishes them is how quickly each one sheds that energy as it ages out, which is exactly what tells you how long a window has to be.
 
 A configured window of 0 is the exception: there is no span to measure, so the check reads live power and the sensor reports nothing rather than a meaningless zero. Your source's own power graph is the tuning view in that case.
 

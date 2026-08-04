@@ -26,6 +26,7 @@ from .const import (
     DEFAULT_START_DELAY,
     DOMAIN,
     LOGGER,
+    SECONDS_PER_HOUR,
     TRIGGER_COMMAND,
     TRIGGER_POLL,
     TRIGGER_SOURCE_UPDATE,
@@ -34,7 +35,7 @@ from .const import (
     TUNING_KEY_PREFIX,
     TUNING_POST_CYCLE,
 )
-from .state_machine import ApplianceState, ApplianceStateMachine
+from .state_machine import ApplianceState, ApplianceStateMachine, WindowMeasure
 
 STORAGE_VERSION = 1
 PERSIST_DELAY_SECONDS = 10.0
@@ -53,6 +54,19 @@ def _headroom_ratio(value: float | None, threshold: float) -> float | None:
     if value is None or threshold <= 0:
         return None
     return round(value / threshold, HEADROOM_PRECISION)
+
+
+def _average_power_w(measure: WindowMeasure, window_seconds: float) -> float | None:
+    """
+    Return the window's energy expressed as the average power over it.
+
+    A zero-length window already measures power, so it passes through.
+    """
+    if measure.value is None:
+        return None
+    if measure.is_power:
+        return round(measure.value, HEADROOM_PRECISION)
+    return round(measure.value * SECONDS_PER_HOUR / window_seconds, HEADROOM_PRECISION)
 
 
 if TYPE_CHECKING:
@@ -258,6 +272,10 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "source_samples_in_window": measure.source_sample_count,
                 "trigger": self._trigger,
                 "measures": "power" if measure.is_power else "energy",
+                # The same measure as a rate. Unlike the Wh figure this does not
+                # rescale when the window does, so it stays comparable both
+                # across the fixed windows and across a change of setting.
+                "average_power_w": _average_power_w(measure, window),
             }
             if threshold is not None:
                 attrs["threshold"] = threshold

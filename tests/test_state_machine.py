@@ -22,6 +22,7 @@ WORKING: float = 100.0  # busts both budgets
 POST_CYCLE: float = 20.0  # under the post-cycle budget, over the finished one
 QUIET: float = 1.0  # under both
 ABOVE_START: float = START_THRESHOLD + 1.0
+BELOW_START: float = START_THRESHOLD - 1.0  # draws, but never starts a cycle
 
 T0 = datetime(2024, 1, 1)  # noqa: DTZ001
 
@@ -292,6 +293,49 @@ class TestObservedWindows:
     ) -> None:
         """A machine that has seen nothing counts nothing."""
         assert sm.window_measure(300.0).source_sample_count == 0
+
+
+class TestCycleScoping:
+    """Detection is scoped to the cycle; observation is not."""
+
+    def test_new_cycle_cannot_finish_on_earlier_quiet(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """The quiet before a cycle must not end it the moment it starts."""
+        _feed(sm, QUIET, 0, FINISHED_WINDOW * 2)
+        start = FINISHED_WINDOW * 2 + 10
+        sm.update(ABOVE_START, _t(start))
+        _feed(sm, QUIET, start + 10, FINISHED_WINDOW - 60)
+        assert sm.state is ApplianceState.RUNNING
+
+    def test_observation_sees_across_the_cycle_start(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """
+        A window spanning the start still measures — history is not discarded.
+
+        Detection ignores that window, but a tuning sensor reading the same
+        measure must not go blind for a window's length at every cycle start.
+        """
+        _feed(sm, BELOW_START, 0, FINISHED_WINDOW)
+        start = FINISHED_WINDOW + 10
+        sm.update(ABOVE_START, _t(start))
+        sm.update(ABOVE_START, _t(start + 10))
+        assert sm.state is ApplianceState.RUNNING
+        # The window reaches back before the cycle, so there is no verdict...
+        assert sm._is_below(FINISHED_WINDOW, FINISHED_ENERGY_WH) is None
+        # ...but the measurement itself is there, carrying the earlier draw.
+        assert sm.window_measure(FINISHED_WINDOW).value > 0
+
+    def test_scoping_lifts_once_the_cycle_is_long_enough(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """Once the window fits inside the cycle, detection resumes."""
+        _feed(sm, BELOW_START, 0, FINISHED_WINDOW)
+        start = FINISHED_WINDOW + 10
+        sm.update(ABOVE_START, _t(start))
+        _feed(sm, QUIET, start + 10, FINISHED_WINDOW)
+        assert sm.state is ApplianceState.FINISHED
 
 
 class TestSourceSampleCount:

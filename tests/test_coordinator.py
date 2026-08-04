@@ -284,6 +284,26 @@ def test_headroom_ratio_locates_the_threshold() -> None:
     assert attrs["headroom_ratio"] > 1  # still far above: nowhere near finished
 
 
+def test_average_power_normalises_the_window() -> None:
+    """Every window reports the same rate under steady draw, whatever its length."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "3600.0")
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    with patch(
+        "custom_components.appliance_monitor.coordinator.utcnow",
+    ) as mock_utcnow:
+        for offset in range(0, 620, 10):
+            mock_utcnow.return_value = t0 + timedelta(seconds=offset)
+            data = _update(coordinator)
+    rates = [
+        data["attributes"][f"{TUNING_KEY_PREFIX}{name}"]["average_power_w"]
+        for name, _ in TUNING_FIXED_WINDOWS
+    ]
+    # The Wh figures differ 20-fold across these windows; the rate does not.
+    for rate in rates:
+        assert rate == pytest.approx(3600.0, rel=1e-3)
+
+
 def test_headroom_ratio_is_none_without_a_verdict() -> None:
     """No measurement yet means no ratio, rather than a misleading zero."""
     coordinator = _make_coordinator()

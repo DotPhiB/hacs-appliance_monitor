@@ -108,8 +108,10 @@ class ApplianceStateMachine:
         self._last_update: datetime | None = None
         self._last_power: float = 0.0
         self._cycle_count: int = 0
+        # Detection may not look back past the start of the current cycle.
+        self._cycle_floor: datetime | None = None
         # (timestamp, total_energy_kwh) samples spanning the longest window.
-        self._samples: deque[tuple[datetime, float]] = deque()
+        self._samples: deque[_Sample] = deque()
 
     @property
     def _longest_window_seconds(self) -> float:
@@ -242,11 +244,27 @@ class ApplianceStateMachine:
         return None if measure.is_power else measure.value
 
     def _is_below(self, window_seconds: float, threshold: float) -> bool | None:
-        """Return whether the window is under *threshold*, or None for no verdict."""
+        """
+        Return whether the window is under *threshold*, or None for no verdict.
+
+        Scoped to the current cycle: a window reaching back past its start would
+        judge this cycle on the quiet that preceded it. That scoping belongs to
+        the decision, not to the measurement — observers read the same number
+        either way.
+        """
+        if not self._window_within_cycle(window_seconds):
+            return None
         value = self.window_measure(window_seconds).value
         if value is None:
             return None
         return value < threshold
+
+    def _window_within_cycle(self, window_seconds: float) -> bool:
+        """Return whether the trailing window lies entirely inside this cycle."""
+        if self._cycle_floor is None or not self._samples:
+            return True
+        cutoff = self._samples[-1].timestamp - timedelta(seconds=window_seconds)
+        return cutoff >= self._cycle_floor
 
     def _try_start_running(self, now: datetime) -> None:
         """Transition to RUNNING if the start delay has elapsed."""
@@ -263,12 +281,11 @@ class ApplianceStateMachine:
         self._cycle_duration_seconds = 0.0
         self._cycle_energy_kwh = 0.0
         self._above_threshold_since = None
-        # Samples from before the cycle would make it look idle at once. The
-        # reading that started it is re-recorded as the window's first sample,
-        # so it must keep the provenance it arrived with.
-        from_source = bool(self._samples) and self._samples[-1].from_source
-        self._samples.clear()
-        self._record_sample(now, from_source=from_source)
+        # Consumption from before the cycle would make it look idle at once, so
+        # detection may not reach back past here. The samples themselves stay:
+        # the energy curve is continuous across a cycle boundary, and anything
+        # merely observing it should be able to see across that boundary.
+        self._cycle_floor = now
 
     def _handle_idle(self, power: float, now: datetime) -> None:
         if power >= self._start_threshold:
@@ -328,6 +345,7 @@ class ApplianceStateMachine:
         self._cycle_duration_seconds = 0.0
         self._cycle_energy_kwh = 0.0
         self._last_update = None
+        self._cycle_floor = None
         self._samples.clear()
 
     def mark_unloaded(self) -> None:

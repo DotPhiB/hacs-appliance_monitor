@@ -23,11 +23,10 @@ from .const import (
     DEFAULT_IDLE_TIMEOUT,
     DOMAIN,
     LOGGER,
+    SECONDS_PER_HOUR,
 )
 from .coordinator import STORAGE_VERSION, ApplianceMonitorCoordinator
 from .data import ApplianceMonitorData
-
-SECONDS_PER_HOUR = 3600.0
 
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData, HomeAssistant
