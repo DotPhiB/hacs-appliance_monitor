@@ -203,7 +203,7 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self._current_data())
 
     async def unloaded(self) -> None:
-        """Acknowledge a finished cycle: FINISHED to IDLE, metrics kept."""
+        """Acknowledge a finished cycle: POST_CYCLE or FINISHED to IDLE, metrics kept."""
         self._state_machine.mark_unloaded()
         await self._async_persist_now()
         self.async_set_updated_data(self._current_data())

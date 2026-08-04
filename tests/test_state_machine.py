@@ -338,7 +338,7 @@ class TestPostCycle:
     def test_never_restarts_from_post_cycle(
         self, post_sm: ApplianceStateMachine
     ) -> None:
-        """FINISHED is the only way out — draw alone cannot start a new cycle.
+        """Draw alone cannot start a new cycle — only the button or a quiet window.
 
         The post-cycle draw of a washing machine sits above start_threshold, so
         judging a restart on live power would flap between the two states.
@@ -517,11 +517,33 @@ class TestUnloaded:
         end = _run_cycle(sm)
         return _feed(sm, QUIET, end, FINISHED_WINDOW)
 
+    def _post_cycle(self, post_sm: ApplianceStateMachine) -> float:
+        """Drive post_sm through a working phase into POST_CYCLE; return the offset."""
+        end = _run_cycle(post_sm)
+        return _feed(post_sm, POST_CYCLE, end, POST_CYCLE_WINDOW)
+
     def test_finished_becomes_idle(self, sm: ApplianceStateMachine) -> None:
         """FINISHED → IDLE."""
         self._finish(sm)
         sm.mark_unloaded()
         assert sm.state is ApplianceState.IDLE
+
+    def test_post_cycle_becomes_idle(self, post_sm: ApplianceStateMachine) -> None:
+        """POST_CYCLE → IDLE — the load is ready there, so the button applies."""
+        self._post_cycle(post_sm)
+        assert post_sm.state is ApplianceState.POST_CYCLE
+        post_sm.mark_unloaded()
+        assert post_sm.state is ApplianceState.IDLE
+
+    def test_unloading_post_cycle_allows_a_new_cycle(
+        self, post_sm: ApplianceStateMachine
+    ) -> None:
+        """Unloading is the way out of the phase no cycle can start from."""
+        end = self._post_cycle(post_sm)
+        post_sm.mark_unloaded()
+        post_sm.update(ABOVE_START, _t(end + 60))
+        assert post_sm.state is ApplianceState.RUNNING
+        assert post_sm.cycle_count == 1
 
     def test_running_is_untouched(self, sm: ApplianceStateMachine) -> None:
         """A press while RUNNING must not cut the cycle short."""
@@ -560,6 +582,15 @@ class TestUnloaded:
         assert sm.state_before_disconnect is ApplianceState.IDLE
         sm.update(QUIET, _t(end + 500))
         assert sm.state is ApplianceState.IDLE
+
+    def test_while_disconnected_from_post_cycle_resumes_idle(
+        self, post_sm: ApplianceStateMachine
+    ) -> None:
+        """The same holds for an outage during the post-cycle phase."""
+        self._post_cycle(post_sm)
+        post_sm.mark_disconnected()
+        post_sm.mark_unloaded()
+        assert post_sm.state_before_disconnect is ApplianceState.IDLE
 
     def test_while_disconnected_from_running_is_inert(
         self, sm: ApplianceStateMachine

@@ -109,7 +109,7 @@ Each configured appliance exposes a small primary set, a set of diagnostic entit
 | `sensor.<name>_state` | Current state: `idle`, `running`, `post_cycle`, `finished`, or `disconnected` |
 | `sensor.<name>_cycle_duration` | Wall-clock duration of the current cycle in seconds, displayed as `h min` (frozen when the working phase ends) |
 | `sensor.<name>_cycle_energy` | Energy consumed during the current cycle in kWh (frozen at FINISHED) |
-| `button.<name>_unloaded` | Acknowledge a finished cycle: FINISHED → IDLE. A no-op in any other state, and the last cycle's duration/energy/start stay readable. This is the one to wire into notifications. |
+| `button.<name>_unloaded` | Acknowledge a finished cycle: POST_CYCLE or FINISHED → IDLE. A no-op in any other state, and the last cycle's duration/energy/start stay readable. This is the one to wire into notifications. |
 
 ### Diagnostic
 
@@ -132,7 +132,7 @@ Each configured appliance exposes a small primary set, a set of diagnostic entit
 | `button.<name>_reset_state` | Force the appliance state to IDLE from *any* state and clear the current cycle's metrics (cycle count and lifetime totals preserved) |
 | `button.<name>_reset_cycle_count` | Zero the cycle counter without affecting state |
 
-> **Reset State vs Unloaded**: `reset_state` is the escape hatch for a machine that got stuck in the wrong state — it works from anywhere and discards the current cycle. `unloaded` is the everyday "I emptied it" acknowledgement — it only fires on a finished cycle, so pressing it mid-wash does nothing.
+> **Reset State vs Unloaded**: `reset_state` is the escape hatch for a machine that got stuck in the wrong state — it works from anywhere and discards the current cycle. `unloaded` is the everyday "I emptied it" acknowledgement — it fires on `post_cycle` and `finished`, the two states in which the load is ready, so pressing it mid-wash does nothing.
 
 ---
 
@@ -151,7 +151,7 @@ IDLE ─────────────────────────
                                                         │
                         power ≥ start_threshold ────────┘──► RUNNING (new cycle)
 
-   FINISHED ──► IDLE
+   POST_CYCLE / FINISHED ──► IDLE
      unloaded button
 
    (any) ──► DISCONNECTED ──► (resumes prior state on next sample)
@@ -166,10 +166,10 @@ IDLE ─────────────────────────
 - **RUNNING → FINISHED**: with the phase disabled, the same check runs against the finished window and threshold instead.
 - **POST_CYCLE → FINISHED**: less than the finished threshold is consumed within the finished window. `cycle_energy` keeps counting until here, since the appliance is still drawing.
 - **FINISHED → RUNNING**: a new power spike starts a fresh cycle.
-- **FINISHED → IDLE**: the Unloaded button acknowledges the cycle. Ignored in every other state, and the last cycle's metrics are kept.
+- **POST_CYCLE / FINISHED → IDLE**: the Unloaded button acknowledges the cycle. Ignored in every other state, and the last cycle's metrics are kept.
 - **Any → IDLE**: the Reset State button forces the machine back to IDLE and clears the current cycle's metrics.
 
-**No cycle can start from POST_CYCLE.** The draw during that phase can sit above `start_threshold` — a washing machine holds 10–16 W — so any live-power check would flap between the two states. The trade-off is that starting a new load before the appliance goes quiet leaves it stuck in POST_CYCLE; the reset button is the way out.
+**No cycle can start from POST_CYCLE.** The draw during that phase can sit above `start_threshold` — a washing machine holds 10–16 W — so any live-power check would flap between the two states. Starting a new load before the appliance goes quiet therefore means pressing Unloaded first, which is no imposition: the appliance has to be emptied for that anyway.
 
 No check runs until a full window of readings exists. That single rule covers short cycles, Home Assistant restarts and source outages: an empty window reads as zero energy, which would otherwise finish a cycle instantly.
 

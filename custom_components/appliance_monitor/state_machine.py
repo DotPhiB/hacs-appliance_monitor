@@ -23,6 +23,10 @@ class ApplianceState(StrEnum):
     DISCONNECTED = "disconnected"
 
 
+# States in which the cycle is over and the load is ready to come out.
+_LOAD_READY = frozenset({ApplianceState.POST_CYCLE, ApplianceState.FINISHED})
+
+
 class ApplianceStateMachine:
     """
     Tracks appliance state from power readings.
@@ -217,9 +221,9 @@ class ApplianceStateMachine:
         # FINISHED is the only way out. A new cycle cannot start from here:
         # the draw while idling after a cycle can sit above start_threshold (a
         # washing machine holds 10-16 W), so any live-power check would restart
-        # the cycle over and over. The cost is that loading and starting the
-        # appliance again before it goes quiet leaves it stuck in this phase —
-        # the reset button is the way out until that proves worth configuring.
+        # the cycle over and over. Starting a new load before the appliance
+        # goes quiet therefore needs the unloaded button first, which is no
+        # imposition — the appliance has to be emptied for that anyway.
         if self._is_below(
             self._finished_window_seconds,
             self._finished_energy_threshold_wh,
@@ -253,17 +257,22 @@ class ApplianceStateMachine:
 
     def mark_unloaded(self) -> None:
         """
-        Acknowledge a finished cycle: FINISHED to IDLE.
+        Acknowledge a finished cycle: POST_CYCLE or FINISHED to IDLE.
+
+        The load is ready in both states. Unloading also ends the post-cycle
+        phase, since emptying the appliance means it was opened — and it is
+        the only way out of a phase no cycle can start from. A press made in
+        error costs no more than the rest of that phase going unreported.
 
         A no-op in any other state. Last-cycle metrics are kept.
         """
-        if self._state is ApplianceState.FINISHED:
+        if self._state in _LOAD_READY:
             self._state = ApplianceState.IDLE
         elif (
             self._state is ApplianceState.DISCONNECTED
-            and self._state_before_disconnect is ApplianceState.FINISHED
+            and self._state_before_disconnect in _LOAD_READY
         ):
-            # Reconnect resumes IDLE instead of FINISHED.
+            # Reconnect resumes IDLE instead of the acknowledged state.
             self._state_before_disconnect = ApplianceState.IDLE
 
     def mark_disconnected(self) -> None:
@@ -338,7 +347,7 @@ class ApplianceStateMachine:
         Covers POST_CYCLE as well: the load is ready at that point, which is
         what an automation waiting on "finished" cares about.
         """
-        return self._state in {ApplianceState.POST_CYCLE, ApplianceState.FINISHED}
+        return self._state in _LOAD_READY
 
     @property
     def cycle_start(self) -> datetime | None:
