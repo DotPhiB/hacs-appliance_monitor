@@ -172,7 +172,8 @@ class TestRunningTransitions:
         assert sm.state is ApplianceState.RUNNING
 
     def test_brief_spike_does_not_delay_finish(self, sm: ApplianceStateMachine) -> None:
-        """One blip inside an otherwise quiet window still finishes the cycle.
+        """
+        One blip inside an otherwise quiet window still finishes the cycle.
 
         This is the behaviour an idle timeout could not offer: a single sample
         above the threshold re-armed it and pushed the finish out indefinitely.
@@ -263,7 +264,8 @@ class TestWindowShorterThanUpdates:
         assert self._fed(10.0)._window_energy_wh(10.0) == pytest.approx(10.0)
 
     def test_window_length_changes_the_verdict(self) -> None:
-        """The same threshold decides differently at 5 s than at 10 s.
+        """
+        Decide differently at 5 s than at 10 s on the same threshold.
 
         Sub-interval windows are not rounded up to the update interval: the
         straddling sample is prorated, so the threshold stays meaningful.
@@ -281,7 +283,9 @@ class TestPostCycle:
         _feed(post_sm, POST_CYCLE, end, POST_CYCLE_WINDOW)
         assert post_sm.state is ApplianceState.POST_CYCLE
 
-    def test_post_cycle_counts_as_finished(self, post_sm: ApplianceStateMachine) -> None:
+    def test_post_cycle_counts_as_finished(
+        self, post_sm: ApplianceStateMachine
+    ) -> None:
         """is_finished covers POST_CYCLE — the load is ready at that point."""
         end = _run_cycle(post_sm)
         _feed(post_sm, POST_CYCLE, end, POST_CYCLE_WINDOW)
@@ -338,7 +342,8 @@ class TestPostCycle:
     def test_never_restarts_from_post_cycle(
         self, post_sm: ApplianceStateMachine
     ) -> None:
-        """Draw alone cannot start a new cycle — only the button or a quiet window.
+        """
+        Draw alone cannot start a new cycle — only the button or a quiet window.
 
         The post-cycle draw of a washing machine sits above start_threshold, so
         judging a restart on live power would flap between the two states.
@@ -448,7 +453,9 @@ class TestStartHysteresis:
         delayed_sm.update(ABOVE_START, _t(self.START_DELAY))
         assert delayed_sm.state is ApplianceState.IDLE
 
-    def test_zero_delay_transitions_immediately(self, sm: ApplianceStateMachine) -> None:
+    def test_zero_delay_transitions_immediately(
+        self, sm: ApplianceStateMachine
+    ) -> None:
         """The default of no delay starts on the first qualifying sample."""
         sm.update(ABOVE_START, _t(0))
         assert sm.state is ApplianceState.RUNNING

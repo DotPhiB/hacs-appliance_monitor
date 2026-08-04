@@ -110,7 +110,8 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_POST_CYCLE_ENERGY_THRESHOLD,
                 default=defaults.get(
-                    CONF_POST_CYCLE_ENERGY_THRESHOLD, DEFAULT_POST_CYCLE_ENERGY_THRESHOLD
+                    CONF_POST_CYCLE_ENERGY_THRESHOLD,
+                    DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
                 ),
             ): _energy_selector(),
         }
