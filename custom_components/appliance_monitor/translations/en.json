@@ -58,6 +58,27 @@
             },
             "total_energy": {
                 "name": "Total Energy"
+            },
+            "tuning_30s": {
+                "name": "Tuning: energy per 30 s"
+            },
+            "tuning_1m": {
+                "name": "Tuning: energy per 1 min"
+            },
+            "tuning_2m": {
+                "name": "Tuning: energy per 2 min"
+            },
+            "tuning_5m": {
+                "name": "Tuning: energy per 5 min"
+            },
+            "tuning_10m": {
+                "name": "Tuning: energy per 10 min"
+            },
+            "tuning_finished_window": {
+                "name": "Tuning: energy per finished window"
+            },
+            "tuning_post_cycle_window": {
+                "name": "Tuning: energy per post-cycle window"
             }
         }
     },

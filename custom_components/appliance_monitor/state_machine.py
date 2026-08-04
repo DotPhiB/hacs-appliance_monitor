@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from itertools import islice
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from collections.abc import Sequence
 
 WH_PER_KWH = 1000.0
 
@@ -25,6 +27,36 @@ class ApplianceState(StrEnum):
 
 # States in which the cycle is over and the load is ready to come out.
 _LOAD_READY = frozenset({ApplianceState.POST_CYCLE, ApplianceState.FINISHED})
+
+
+class _Sample(NamedTuple):
+    """One recorded reading of the running energy total."""
+
+    timestamp: datetime
+    total_energy_kwh: float
+    from_source: bool
+    """False when the poll re-read a value the source never republished."""
+
+
+@dataclass(frozen=True, slots=True)
+class WindowMeasure:
+    """One reading of a trailing window, as both checks and reports see it."""
+
+    value: float | None
+    """Wh consumed over the window — or watts when it degenerates to a point."""
+
+    is_power: bool
+    """True when the window is 0 and *value* is a live reading in watts."""
+
+    source_sample_count: int
+    """
+    How many readings the source itself published inside the window.
+
+    Poll re-reads are excluded: they carry no new information from the
+    appliance, so counting them would hide a silent source behind a floor of
+    roughly one sample per poll interval. Zero therefore honestly means the
+    source said nothing at all during this window.
+    """
 
 
 class ApplianceStateMachine:
@@ -49,8 +81,14 @@ class ApplianceStateMachine:
         post_cycle_enabled: bool = False,
         post_cycle_window_seconds: float = 0,
         post_cycle_energy_threshold_wh: float = 0,
+        observed_windows_seconds: Sequence[float] = (),
     ) -> None:
-        """Initialise with threshold, window and energy threshold values."""
+        """
+        Initialise with threshold, window and energy threshold values.
+
+        *observed_windows_seconds* take no part in detection; they only keep
+        samples around long enough for something else to measure them.
+        """
         self._start_threshold = start_threshold
         self._start_delay_seconds = start_delay_seconds
         self._finished_window_seconds = finished_window_seconds
@@ -58,6 +96,7 @@ class ApplianceStateMachine:
         self._post_cycle_enabled = post_cycle_enabled
         self._post_cycle_window_seconds = post_cycle_window_seconds
         self._post_cycle_energy_threshold_wh = post_cycle_energy_threshold_wh
+        self._observed_windows_seconds = tuple(observed_windows_seconds)
         self._state: ApplianceState = ApplianceState.IDLE
         self._state_before_disconnect: ApplianceState = ApplianceState.IDLE
         self._above_threshold_since: datetime | None = None
@@ -74,13 +113,21 @@ class ApplianceStateMachine:
 
     @property
     def _longest_window_seconds(self) -> float:
-        """Return the longest window any check needs samples for."""
+        """Return the longest window any check or observer needs samples for."""
+        windows = [self._finished_window_seconds, *self._observed_windows_seconds]
         if self._post_cycle_enabled:
-            return max(self._finished_window_seconds, self._post_cycle_window_seconds)
-        return self._finished_window_seconds
+            windows.append(self._post_cycle_window_seconds)
+        return max(windows)
 
-    def update(self, power: float, now: datetime) -> None:
-        """Advance the state machine with a new power reading."""
+    def update(self, power: float, now: datetime, *, from_source: bool = False) -> None:
+        """
+        Advance the state machine with a new power reading.
+
+        *from_source* marks a value the source itself published, as opposed to
+        a poll re-reading one it had already reported. Detection treats both
+        alike — a repeated value is still evidence of consumption — but only
+        the former counts as the source having said something.
+        """
         if self._state is ApplianceState.DISCONNECTED:
             self._state = self._state_before_disconnect
             self._state_before_disconnect = ApplianceState.IDLE
@@ -106,7 +153,7 @@ class ApplianceStateMachine:
                     )
         self._last_update = now
         self._last_power = power
-        self._record_sample(now)
+        self._record_sample(now, from_source=from_source)
 
         if self._state is ApplianceState.IDLE:
             self._handle_idle(power, now)
@@ -117,37 +164,58 @@ class ApplianceStateMachine:
         elif self._state is ApplianceState.FINISHED:
             self._handle_finished(power, now)
 
-    def _record_sample(self, now: datetime) -> None:
+    def _record_sample(self, now: datetime, *, from_source: bool = False) -> None:
         """Append the running energy total and drop samples past the window."""
-        self._samples.append((now, self._total_energy_kwh))
+        self._samples.append(_Sample(now, self._total_energy_kwh, from_source))
         cutoff = now - timedelta(seconds=self._longest_window_seconds)
         # Keep the newest sample at or before the cutoff — it is the left edge
         # of the window; everything older than that one is dead weight.
         while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
             self._samples.popleft()
 
-    def _window_energy_wh(self, window_seconds: float) -> float | None:
+    def window_measure(self, window_seconds: float) -> WindowMeasure:
         """
-        Return Wh consumed over the trailing window, or None if not covered yet.
+        Measure the trailing window once, for both deciding and reporting.
 
-        None means "no verdict": the samples do not span the full window, as
-        after a restart, a source outage, or early in a cycle. Every caller
-        must treat that as "keep the current state".
+        The windowed measure is the rise of the cumulative energy curve; over
+        the window's length that is an average rate, and as the window shrinks
+        the rate converges on the power at that instant. A window of 0 is
+        therefore the same check taken at a point, with the value read in
+        watts rather than Wh — exact for appliances that drop straight to zero,
+        and as fast as the source reports.
+
+        A `value` of None means "no verdict": the samples do not span the full
+        window, as after a restart, a source outage, or early in a cycle. Every
+        caller must treat that as "keep the current state".
         """
+        if window_seconds <= 0:
+            last = self._samples[-1] if self._samples else None
+            return WindowMeasure(
+                value=self._last_power,
+                is_power=True,
+                source_sample_count=1 if last is not None and last.from_source else 0,
+            )
         if len(self._samples) < 2:  # noqa: PLR2004
-            return None
-        now, total = self._samples[-1]
+            return WindowMeasure(
+                None, is_power=False, source_sample_count=self._source_count_from(0)
+            )
+        now, total, _ = self._samples[-1]
         cutoff = now - timedelta(seconds=window_seconds)
         index: int | None = None
-        for i, (timestamp, _) in enumerate(self._samples):
-            if timestamp > cutoff:
+        for i, sample in enumerate(self._samples):
+            if sample.timestamp > cutoff:
                 break
             index = i
         if index is None:
-            return None
-        base_time, base = self._samples[index]
+            return WindowMeasure(
+                None, is_power=False, source_sample_count=self._source_count_from(0)
+            )
+        # The sample at *index* sits on or before the window's edge, so only the
+        # ones after it were published while the window was open.
+        source_sample_count = self._source_count_from(index + 1)
+        base_time, base, _ = self._samples[index]
         if index + 1 < len(self._samples):
-            next_time, next_value = self._samples[index + 1]
+            next_time, next_value, _ = self._samples[index + 1]
             span = (next_time - base_time).total_seconds()
             if span > 0:
                 # The sample straddling the window edge only counts for the
@@ -156,25 +224,29 @@ class ApplianceStateMachine:
                 # the source's update interval.
                 inside = (cutoff - base_time).total_seconds()
                 base += (next_value - base) * (inside / span)
-        return (total - base) * WH_PER_KWH
+        return WindowMeasure(
+            value=(total - base) * WH_PER_KWH,
+            is_power=False,
+            source_sample_count=source_sample_count,
+        )
+
+    def _source_count_from(self, start: int) -> int:
+        """Count source-published readings from *start* onwards."""
+        return sum(
+            1 for sample in islice(self._samples, start, None) if sample.from_source
+        )
+
+    def window_energy_wh(self, window_seconds: float) -> float | None:
+        """Return Wh over the trailing window, or None if there is no verdict."""
+        measure = self.window_measure(window_seconds)
+        return None if measure.is_power else measure.value
 
     def _is_below(self, window_seconds: float, threshold: float) -> bool | None:
-        """
-        Return whether the appliance is under *threshold*, or None for no verdict.
-
-        The windowed measure is the rise of the cumulative energy curve; over
-        the window's length that is an average rate, and as the window shrinks
-        the rate converges on the power at that instant. A window of 0 is
-        therefore the same check taken at a point, with the threshold read in
-        watts rather than Wh — exact for appliances that drop straight to zero,
-        and as fast as the source reports.
-        """
-        if window_seconds <= 0:
-            return self._last_power < threshold
-        consumed = self._window_energy_wh(window_seconds)
-        if consumed is None:
+        """Return whether the window is under *threshold*, or None for no verdict."""
+        value = self.window_measure(window_seconds).value
+        if value is None:
             return None
-        return consumed < threshold
+        return value < threshold
 
     def _try_start_running(self, now: datetime) -> None:
         """Transition to RUNNING if the start delay has elapsed."""
@@ -191,9 +263,12 @@ class ApplianceStateMachine:
         self._cycle_duration_seconds = 0.0
         self._cycle_energy_kwh = 0.0
         self._above_threshold_since = None
-        # Samples from before the cycle would make it look idle at once.
+        # Samples from before the cycle would make it look idle at once. The
+        # reading that started it is re-recorded as the window's first sample,
+        # so it must keep the provenance it arrived with.
+        from_source = bool(self._samples) and self._samples[-1].from_source
         self._samples.clear()
-        self._record_sample(now)
+        self._record_sample(now, from_source=from_source)
 
     def _handle_idle(self, power: float, now: datetime) -> None:
         if power >= self._start_threshold:

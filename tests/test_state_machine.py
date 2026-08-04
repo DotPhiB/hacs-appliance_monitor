@@ -238,6 +238,134 @@ class TestZeroWindow:
         assert instant_sm.state is ApplianceState.RUNNING
 
 
+class TestObservedWindows:
+    """Windows kept for measuring only; they must not steer detection."""
+
+    OBSERVED: tuple[float, ...] = (30.0, 60.0, 600.0)
+    POWER_W: float = 3600.0  # 10 Wh per 10 s interval
+
+    def _fed(self, *, observed: bool) -> ApplianceStateMachine:
+        """Return a machine fed 3600 W for 600 s on a 10 s grid."""
+        sm = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=FINISHED_WINDOW,
+            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            observed_windows_seconds=self.OBSERVED if observed else (),
+        )
+        _feed(sm, self.POWER_W, 0, 600)
+        return sm
+
+    def test_measures_each_observed_window(self) -> None:
+        """Every observed window reports the energy of its own span."""
+        sm = self._fed(observed=True)
+        assert sm.window_energy_wh(30.0) == pytest.approx(30.0)
+        assert sm.window_energy_wh(600.0) == pytest.approx(600.0)
+
+    def test_retention_covers_the_longest_observed_window(self) -> None:
+        """A window longer than any detection window still gets its samples."""
+        assert self._fed(observed=True).window_energy_wh(600.0) is not None
+        # Without it, history is trimmed to the 300 s detection window.
+        assert self._fed(observed=False).window_energy_wh(600.0) is None
+
+    def test_detection_is_unaffected(self) -> None:
+        """Observing extra windows changes nothing about the state machine."""
+        plain = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=FINISHED_WINDOW,
+            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+        )
+        observed = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=FINISHED_WINDOW,
+            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            observed_windows_seconds=self.OBSERVED,
+        )
+        for i in range(200):
+            power = self.POWER_W if i < 60 else QUIET
+            plain.update(power, _t(i * 10))
+            observed.update(power, _t(i * 10))
+            assert plain.state is observed.state
+        assert plain.state is ApplianceState.FINISHED
+
+    def test_sample_count_is_zero_before_any_reading(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """A machine that has seen nothing counts nothing."""
+        assert sm.window_measure(300.0).source_sample_count == 0
+
+
+class TestSourceSampleCount:
+    """Only what the source published counts; poll re-reads do not."""
+
+    def _fed(self, sm: ApplianceStateMachine, *, source_every: int) -> None:
+        """Feed 600 s on a 10 s grid, marking every *source_every*-th tick."""
+        for i in range(61):
+            sm.update(100.0, _t(i * 10), from_source=i % source_every == 0)
+
+    def test_polling_samples_are_not_counted(self, sm: ApplianceStateMachine) -> None:
+        """A silent source reads zero, not one-per-poll-interval."""
+        for i in range(61):
+            sm.update(100.0, _t(i * 10))  # poll only
+        assert sm.window_measure(300.0).source_sample_count == 0
+
+    def test_source_samples_are_counted(self, sm: ApplianceStateMachine) -> None:
+        """Readings the source published inside the window are counted."""
+        self._fed(sm, source_every=1)
+        # 30 s window: the sample on its edge is excluded, the three after it count.
+        assert sm.window_measure(30.0).source_sample_count == 3
+
+    def test_counts_only_the_source_share(self, sm: ApplianceStateMachine) -> None:
+        """A source reporting once a minute against a 10 s poll counts as such."""
+        self._fed(sm, source_every=6)  # one source reading per 60 s
+        measure = sm.window_measure(300.0)
+        assert measure.source_sample_count == 5
+        # The measure itself still uses every reading, poll ones included.
+        assert measure.value == pytest.approx(100.0 * 300 / 3600)
+
+    def test_detection_ignores_provenance(self, sm: ApplianceStateMachine) -> None:
+        """Poll re-reads are still evidence of consumption."""
+        sm.update(ABOVE_START, _t(0), from_source=True)
+        _feed(sm, WORKING, 10, FINISHED_WINDOW * 2)  # poll-only, never from_source
+        assert sm.state is ApplianceState.RUNNING
+
+
+class TestSharedWindowMeasure:
+    """Detection and reporting must read the same number, never two."""
+
+    def test_checks_and_reports_agree(self, sm: ApplianceStateMachine) -> None:
+        """The value a threshold is compared against is the one published."""
+        _feed(sm, 3600.0, 0, 600)
+        measure = sm.window_measure(FINISHED_WINDOW)
+        assert measure.value == pytest.approx(sm.window_energy_wh(FINISHED_WINDOW))
+        assert sm._is_below(FINISHED_WINDOW, measure.value + 1) is True
+        assert sm._is_below(FINISHED_WINDOW, measure.value) is False
+
+    def test_zero_window_measures_power_not_energy(self) -> None:
+        """A degenerate window reports the live reading, flagged as watts."""
+        instant = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=0,
+            finished_energy_threshold_wh=3.0,  # read as watts
+        )
+        _feed(instant, 3600.0, 0, 60)
+        measure = instant.window_measure(0)
+        assert measure.is_power
+        assert measure.value == pytest.approx(3600.0)
+        # Not 0.0 Wh, which is what measuring a zero-length span would give.
+        assert instant.window_energy_wh(0) is None
+
+    def test_zero_window_check_uses_that_measure(self) -> None:
+        """The instant check reads the same value it reports."""
+        instant = ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=0,
+            finished_energy_threshold_wh=3.0,
+        )
+        _feed(instant, QUIET, 0, 60)
+        assert instant.window_measure(0).value == pytest.approx(QUIET)
+        assert instant._is_below(0, 3.0) is True
+
+
 class TestWindowShorterThanUpdates:
     """A window below the source's update interval still measures its own span."""
 
@@ -257,11 +385,11 @@ class TestWindowShorterThanUpdates:
 
     def test_measures_a_share_of_the_interval(self) -> None:
         """Half a sample interval of window measures half its energy."""
-        assert self._fed(5.0)._window_energy_wh(5.0) == pytest.approx(5.0)
+        assert self._fed(5.0).window_energy_wh(5.0) == pytest.approx(5.0)
 
     def test_matches_the_interval_exactly(self) -> None:
         """A window equal to the update interval measures it whole."""
-        assert self._fed(10.0)._window_energy_wh(10.0) == pytest.approx(10.0)
+        assert self._fed(10.0).window_energy_wh(10.0) == pytest.approx(10.0)
 
     def test_window_length_changes_the_verdict(self) -> None:
         """

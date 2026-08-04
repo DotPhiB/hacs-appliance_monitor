@@ -26,7 +26,7 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 - Optional start delay to ignore brief startup spikes (e.g. inrush current when the appliance is first plugged in)
 - Reports a **disconnected** state when the source power sensor goes unavailable, without corrupting energy totals or firing spurious transitions across the gap
 - State and lifetime totals survive Home Assistant restarts
-- All thresholds and windows are adjustable post-setup via the integration's options
+- All thresholds and windows are adjustable post-setup via the integration's options, with optional **tuning sensors** that measure your appliance so you can pick them from its own data
 
 ---
 
@@ -96,6 +96,39 @@ The two appliances want opposite settings, which is why every check has its own 
 
 Rule of thumb: the post-cycle window must exceed the appliance's longest low-draw phase while working; the finished window must exceed the gap between its post-cycle bursts.
 
+#### Measuring your own appliance
+
+The numbers above came from somewhere, and the **tuning sensors** let you produce the same table for your own machine without doing the arithmetic by hand. A power graph will not tell you this: energy over a window is an area, and areas are close to impossible to compare by eye.
+
+Each one reports the energy consumed over a fixed trailing window, updated on every reading, regardless of what state the appliance is in or whether the post-cycle phase is enabled:
+
+| Entity | Window |
+|---|---|
+| `sensor.<name>_tuning_30s` | 30 s |
+| `sensor.<name>_tuning_1m` | 1 min |
+| `sensor.<name>_tuning_2m` | 2 min |
+| `sensor.<name>_tuning_5m` | 5 min |
+| `sensor.<name>_tuning_10m` | 10 min |
+| `sensor.<name>_tuning_finished_window` | whatever `finished_window` is set to |
+| `sensor.<name>_tuning_post_cycle_window` | whatever `post_cycle_window` is set to |
+
+They are **disabled by default**. The workflow is: enable them, run a cycle or two, open the history graph, and read off the bands — working, post-cycle, standby — for each window length. The window whose bands are furthest apart is the one to configure, and the threshold goes in the gap. The last two mirror your current settings, so you can watch the exact measure a threshold is judged against and see how much headroom it has. Disable them again afterwards; they record a value on every update, which is a lot of history to keep for a setting you change once.
+
+Each carries attributes for the details the value alone does not show:
+
+| Attribute | Meaning |
+|---|---|
+| `window_seconds` | Length of the window being measured |
+| `source_samples_in_window` | How many readings **the source itself published** inside the window. Poll re-reads are excluded, so `0` honestly means the source said nothing at all — which is normal for a quiet appliance, since a plug that only reports on change has nothing to report. The measure still uses every reading; this counts only how much of it came from the appliance. |
+| `trigger` | `source_update` if the source published a new value, `poll` for the 10 s fallback, `command` for a button press |
+| `measures` | `energy` normally; `power` when the window is 0, where the check is a live reading rather than a window |
+| `threshold` / `threshold_unit` | Configured-window sensors only: the value this window is compared against, in `Wh` (or `W` when the window is 0) |
+| `headroom_ratio` | Configured-window sensors only: the window divided by its threshold. **1.0 is the crossing point** — above it the appliance still counts as busy, below it the check fires. This is the number to watch while tuning: a working phase that only reaches 1.2 leaves almost no margin, while the measured washer sits around 600 mid-cycle and drops under 1 when it is done. `null` until the window has a verdict. |
+
+A window reports nothing until it has a full span of readings behind it — the same rule detection uses, so what you see is exactly the number the state machine compares against its threshold.
+
+A configured window of 0 is the exception: there is no span to measure, so the check reads live power and the sensor reports nothing rather than a meaningless zero. Your source's own power graph is the tuning view in that case.
+
 ---
 
 ## Entities
@@ -122,6 +155,7 @@ Each configured appliance exposes a small primary set, a set of diagnostic entit
 | `sensor.<name>_cycle_start` | Timestamp when the current/last cycle started |
 | `sensor.<name>_total_operating_time` | Lifetime seconds in RUNNING, displayed as `h min` — survives state resets |
 | `sensor.<name>_total_energy` | Lifetime energy in kWh (counts all draw, including standby) |
+| `sensor.<name>_tuning_*` | Seven windowed-energy sensors for picking windows and thresholds — **disabled by default**, see [Measuring your own appliance](#measuring-your-own-appliance) |
 
 > **Energy Dashboard note**: `total_energy` is exposed as `device_class=ENERGY` so HA will offer it under Settings → Energy → "Add consumption." Prefer your source meter's own energy sensor if it exposes one — those are measured directly by the device, while this one is integrated from power readings (less accurate). Use this one only when your source provides power but no energy.
 

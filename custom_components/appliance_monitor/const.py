@@ -31,3 +31,24 @@ DEFAULT_POST_CYCLE_ENERGY_THRESHOLD: float = 2.7
 
 DEFAULT_IDLE_THRESHOLD: int = 3
 DEFAULT_IDLE_TIMEOUT: int = 30
+
+# Tuning sensors: energy over a fixed window, reported on every reading no matter
+# what state the appliance is in. Spread across the range worth comparing when
+# picking a window — see README "Tuning".
+TUNING_FIXED_WINDOWS: tuple[tuple[str, int], ...] = (
+    ("30s", 30),
+    ("1m", 60),
+    ("2m", 120),
+    ("5m", 300),
+    ("10m", 600),
+)
+# Tuning sensors mirroring the two configured windows, so the graph a threshold
+# is actually judged against can be read directly.
+TUNING_FINISHED = "finished_window"
+TUNING_POST_CYCLE = "post_cycle_window"
+TUNING_KEY_PREFIX = "tuning_"
+
+# Why the coordinator refreshed, surfaced as a tuning-sensor attribute.
+TRIGGER_SOURCE_UPDATE = "source_update"
+TRIGGER_POLL = "poll"
+TRIGGER_COMMAND = "command"

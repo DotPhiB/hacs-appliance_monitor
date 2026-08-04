@@ -26,11 +26,34 @@ from .const import (
     DEFAULT_START_DELAY,
     DOMAIN,
     LOGGER,
+    TRIGGER_COMMAND,
+    TRIGGER_POLL,
+    TRIGGER_SOURCE_UPDATE,
+    TUNING_FINISHED,
+    TUNING_FIXED_WINDOWS,
+    TUNING_KEY_PREFIX,
+    TUNING_POST_CYCLE,
 )
 from .state_machine import ApplianceState, ApplianceStateMachine
 
 STORAGE_VERSION = 1
 PERSIST_DELAY_SECONDS = 10.0
+HEADROOM_PRECISION = 3
+
+
+def _headroom_ratio(value: float | None, threshold: float) -> float | None:
+    """
+    Return how the window currently sits relative to its threshold.
+
+    1.0 is the crossing point: above it the window is still over its threshold,
+    below it the check fires. This is the number tuning is really about — how
+    much room a threshold has before it stops separating the two phases — and
+    it works for a zero-length window too, where both sides are watts.
+    """
+    if value is None or threshold <= 0:
+        return None
+    return round(value / threshold, HEADROOM_PRECISION)
+
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -74,7 +97,11 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             post_cycle_energy_threshold_wh=self._conf(
                 CONF_POST_CYCLE_ENERGY_THRESHOLD, DEFAULT_POST_CYCLE_ENERGY_THRESHOLD
             ),
+            observed_windows_seconds=[width for _, width in TUNING_FIXED_WINDOWS],
         )
+        # Set by the source-change listener; every other refresh is the poll.
+        self._pending_trigger = TRIGGER_POLL
+        self._trigger = TRIGGER_POLL
         self._store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -88,8 +115,15 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.config_entry.data.get(key, default),
         )
 
+    async def async_source_changed(self) -> None:
+        """Refresh because the source sensor published a new value."""
+        self._pending_trigger = TRIGGER_SOURCE_UPDATE
+        await self.async_refresh()
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Read the power sensor state and advance the state machine."""
+        self._trigger = self._pending_trigger
+        self._pending_trigger = TRIGGER_POLL
         entity_id: str = self.config_entry.data[CONF_POWER_SENSOR]
         state = self.hass.states.get(entity_id)
 
@@ -111,7 +145,11 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self._current_data()
 
         cycle_count_before = self._state_machine.cycle_count
-        self._state_machine.update(power, utcnow())
+        self._state_machine.update(
+            power,
+            utcnow(),
+            from_source=self._trigger == TRIGGER_SOURCE_UPDATE,
+        )
         if self._state_machine.cycle_count > cycle_count_before:
             # Cycle just finished — persist immediately so an ungraceful
             # shutdown before the debounce fires can't drop the count.
@@ -178,11 +216,64 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cycle_energy_kwh": sm.cycle_energy_kwh,
         }
 
+    def _tuning_windows(self) -> tuple[tuple[str, float, float | None], ...]:
+        """Return (key suffix, window seconds, threshold) for every tuning sensor."""
+        return (
+            *((name, float(width), None) for name, width in TUNING_FIXED_WINDOWS),
+            (
+                TUNING_FINISHED,
+                float(self._conf(CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW)),
+                float(
+                    self._conf(
+                        CONF_FINISHED_ENERGY_THRESHOLD,
+                        DEFAULT_FINISHED_ENERGY_THRESHOLD,
+                    )
+                ),
+            ),
+            (
+                TUNING_POST_CYCLE,
+                float(self._conf(CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW)),
+                float(
+                    self._conf(
+                        CONF_POST_CYCLE_ENERGY_THRESHOLD,
+                        DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+                    )
+                ),
+            ),
+        )
+
+    def _tuning_data(self) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        """Measure every tuning window and describe how it was measured."""
+        values: dict[str, Any] = {}
+        attributes: dict[str, dict[str, Any]] = {}
+        for name, window, threshold in self._tuning_windows():
+            key = f"{TUNING_KEY_PREFIX}{name}"
+            measure = self._state_machine.window_measure(window)
+            # A zero-length window is judged on live power, not on an energy
+            # budget, so there is no Wh figure to plot — the source's own power
+            # graph is the tuning view in that case.
+            values[key] = None if measure.is_power else measure.value
+            attrs: dict[str, Any] = {
+                "window_seconds": window,
+                "source_samples_in_window": measure.source_sample_count,
+                "trigger": self._trigger,
+                "measures": "power" if measure.is_power else "energy",
+            }
+            if threshold is not None:
+                attrs["threshold"] = threshold
+                attrs["threshold_unit"] = "W" if measure.is_power else "Wh"
+                attrs["headroom_ratio"] = _headroom_ratio(measure.value, threshold)
+            attributes[key] = attrs
+        return values, attributes
+
     def _current_data(self, power: float | None = None) -> dict[str, Any]:
         """Snapshot the state machine into a coordinator data dict."""
         if power is None:
             power = self.data.get("power", 0.0) if self.data else 0.0
+        tuning_values, tuning_attributes = self._tuning_data()
         return {
+            **tuning_values,
+            "attributes": tuning_attributes,
             "state": str(self._state_machine.state),
             "running": self._state_machine.is_running,
             "finished": self._state_machine.is_finished,
@@ -200,16 +291,19 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Reset the appliance state to IDLE; cycle count is preserved."""
         self._state_machine.reset()
         await self._async_persist_now()
+        self._trigger = TRIGGER_COMMAND
         self.async_set_updated_data(self._current_data())
 
     async def unloaded(self) -> None:
         """Acknowledge a finished cycle: POST_CYCLE/FINISHED to IDLE, metrics kept."""
         self._state_machine.mark_unloaded()
         await self._async_persist_now()
+        self._trigger = TRIGGER_COMMAND
         self.async_set_updated_data(self._current_data())
 
     async def reset_cycle_count(self) -> None:
         """Zero the cycle counter without affecting the current state."""
         self._state_machine.reset_cycle_count()
         await self._async_persist_now()
+        self._trigger = TRIGGER_COMMAND
         self.async_set_updated_data(self._current_data())

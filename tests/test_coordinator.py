@@ -8,7 +8,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.appliance_monitor.const import CONF_POWER_SENSOR
+from custom_components.appliance_monitor.const import (
+    CONF_FINISHED_WINDOW,
+    CONF_POWER_SENSOR,
+    TRIGGER_COMMAND,
+    TRIGGER_POLL,
+    TRIGGER_SOURCE_UPDATE,
+    TUNING_FINISHED,
+    TUNING_FIXED_WINDOWS,
+    TUNING_KEY_PREFIX,
+    TUNING_POST_CYCLE,
+)
 from custom_components.appliance_monitor.coordinator import ApplianceMonitorCoordinator
 from custom_components.appliance_monitor.state_machine import (
     ApplianceState,
@@ -20,6 +30,7 @@ POWER_SENSOR = "sensor.fake_power"
 START_THRESHOLD = 10.0
 FINISHED_WINDOW = 300.0
 FINISHED_ENERGY_WH = 0.3
+FINISHED_WINDOW_TICKS = int(FINISHED_WINDOW) + 10
 
 
 def _make_coordinator() -> ApplianceMonitorCoordinator:
@@ -33,7 +44,10 @@ def _make_coordinator() -> ApplianceMonitorCoordinator:
         start_threshold=START_THRESHOLD,
         finished_window_seconds=FINISHED_WINDOW,
         finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+        observed_windows_seconds=[width for _, width in TUNING_FIXED_WINDOWS],
     )
+    coordinator._pending_trigger = TRIGGER_POLL
+    coordinator._trigger = TRIGGER_POLL
     coordinator._store = MagicMock()
     coordinator._store.async_load = AsyncMock(return_value=None)
     coordinator._store.async_save = AsyncMock()
@@ -178,6 +192,158 @@ def test_unloaded_does_not_stop_a_running_cycle() -> None:
     _update(coordinator)  # → RUNNING
     asyncio.run(coordinator.unloaded())
     assert coordinator._state_machine.state is ApplianceState.RUNNING
+
+
+def test_tuning_sensors_report_every_window() -> None:
+    """Every fixed and configured window shows up in the coordinator data."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)
+    expected = {f"{TUNING_KEY_PREFIX}{name}" for name, _ in TUNING_FIXED_WINDOWS}
+    expected |= {
+        f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}",
+        f"{TUNING_KEY_PREFIX}{TUNING_POST_CYCLE}",
+    }
+    assert expected <= set(data)
+
+
+def test_tuning_sensors_report_outside_a_cycle() -> None:
+    """Measuring does not depend on the appliance running or the phase existing."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "0.5")  # below start threshold: stays IDLE
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    key = f"{TUNING_KEY_PREFIX}30s"
+    with patch(
+        "custom_components.appliance_monitor.coordinator.utcnow",
+    ) as mock_utcnow:
+        for offset in range(0, 40, 10):
+            mock_utcnow.return_value = t0 + timedelta(seconds=offset)
+            data = _update(coordinator)
+    assert coordinator._state_machine.state is ApplianceState.IDLE
+    assert data[key] == pytest.approx(0.5 * 30 / 3600, rel=1e-3)
+
+
+def test_tuning_window_not_yet_covered_is_none() -> None:
+    """A window without a full span of readings reports nothing, not zero."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)
+    assert data[f"{TUNING_KEY_PREFIX}10m"] is None
+
+
+def test_tuning_attributes_describe_the_window() -> None:
+    """Fixed windows carry their length, sample count and refresh trigger."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)
+    attrs = data["attributes"][f"{TUNING_KEY_PREFIX}30s"]
+    assert attrs["window_seconds"] == 30
+    assert attrs["trigger"] == TRIGGER_POLL
+    assert "threshold" not in attrs
+    assert "headroom_ratio" not in attrs
+
+
+def test_source_samples_exclude_the_poll() -> None:
+    """A poll-only refresh contributes nothing to the source sample count."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    key = f"{TUNING_KEY_PREFIX}30s"
+    with patch(
+        "custom_components.appliance_monitor.coordinator.utcnow",
+    ) as mock_utcnow:
+        for offset in range(0, 60, 10):
+            mock_utcnow.return_value = t0 + timedelta(seconds=offset)
+            data = _update(coordinator)  # poll-driven throughout
+    assert data["attributes"][key]["source_samples_in_window"] == 0
+
+    with patch(
+        "custom_components.appliance_monitor.coordinator.utcnow",
+    ) as mock_utcnow:
+        mock_utcnow.return_value = t0 + timedelta(seconds=60)
+        coordinator._pending_trigger = TRIGGER_SOURCE_UPDATE
+        data = _update(coordinator)
+    assert data["attributes"][key]["source_samples_in_window"] == 1
+
+
+def test_headroom_ratio_locates_the_threshold() -> None:
+    """The configured windows report where they sit relative to their threshold."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "3600.0")  # 1 Wh per second
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    with patch(
+        "custom_components.appliance_monitor.coordinator.utcnow",
+    ) as mock_utcnow:
+        for offset in range(0, FINISHED_WINDOW_TICKS, 10):
+            mock_utcnow.return_value = t0 + timedelta(seconds=offset)
+            data = _update(coordinator)
+    attrs = data["attributes"][f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"]
+    # 3600 W across the 300 s window is 300 Wh against a 0.3 Wh threshold.
+    expected = 300.0 / FINISHED_ENERGY_WH
+    assert attrs["headroom_ratio"] == pytest.approx(expected, rel=1e-3)
+    assert attrs["headroom_ratio"] > 1  # still far above: nowhere near finished
+
+
+def test_headroom_ratio_is_none_without_a_verdict() -> None:
+    """No measurement yet means no ratio, rather than a misleading zero."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)  # single sample: window not covered
+    attrs = data["attributes"][f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"]
+    assert attrs["headroom_ratio"] is None
+
+
+def test_configured_window_attributes_carry_the_threshold() -> None:
+    """The configured windows also publish what they are judged against."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)
+    attrs = data["attributes"][f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"]
+    assert attrs["window_seconds"] == FINISHED_WINDOW
+    assert attrs["threshold"] == pytest.approx(FINISHED_ENERGY_WH)
+    assert attrs["threshold_unit"] == "Wh"
+
+
+def test_zero_window_reports_no_energy_figure() -> None:
+    """A degenerate window is judged on live power, so there is no Wh to plot."""
+    coordinator = _make_coordinator()
+    coordinator.config_entry.options = {CONF_FINISHED_WINDOW: 0}
+    _set_source_state(coordinator, "50.0")
+    data = _update(coordinator)
+    key = f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"
+    # Measuring a zero-length span would yield a constant, meaningless 0.0 Wh.
+    assert data[key] is None
+    attrs = data["attributes"][key]
+    assert attrs["window_seconds"] == 0
+    assert attrs["measures"] == "power"
+    assert attrs["threshold_unit"] == "W"
+
+
+def test_trigger_distinguishes_source_updates_from_polls() -> None:
+    """A source-driven refresh is labelled differently from the 10 s poll."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    key = f"{TUNING_KEY_PREFIX}30s"
+
+    coordinator.async_refresh = AsyncMock()
+    asyncio.run(coordinator.async_source_changed())
+    assert coordinator._pending_trigger == TRIGGER_SOURCE_UPDATE
+    data = _update(coordinator)
+    assert data["attributes"][key]["trigger"] == TRIGGER_SOURCE_UPDATE
+
+    # The flag is consumed, so the next refresh is a plain poll again.
+    data = _update(coordinator)
+    assert data["attributes"][key]["trigger"] == TRIGGER_POLL
+
+
+def test_trigger_marks_button_driven_updates() -> None:
+    """A button press republishes data without a new reading behind it."""
+    coordinator = _make_coordinator()
+    _set_source_state(coordinator, "50.0")
+    _update(coordinator)
+    asyncio.run(coordinator.unloaded())
+    data = coordinator.async_set_updated_data.call_args.args[0]
+    assert data["attributes"][f"{TUNING_KEY_PREFIX}30s"]["trigger"] == TRIGGER_COMMAND
 
 
 def test_snapshot_roundtrip_preserves_state_before_disconnect() -> None:

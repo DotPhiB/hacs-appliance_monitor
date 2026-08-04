@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,10 +12,17 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
 
+from .const import (
+    TUNING_FINISHED,
+    TUNING_FIXED_WINDOWS,
+    TUNING_KEY_PREFIX,
+    TUNING_POST_CYCLE,
+)
 from .entity import ApplianceMonitorEntity
 from .state_machine import ApplianceState
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime
 
     from homeassistant.core import HomeAssistant
@@ -84,6 +91,32 @@ ENTITY_DESCRIPTIONS = (
 )
 
 
+def _tuning_description(key_suffix: str) -> SensorEntityDescription:
+    """Build the description for one tuning sensor."""
+    return SensorEntityDescription(
+        key=f"{TUNING_KEY_PREFIX}{key_suffix}",
+        translation_key=f"{TUNING_KEY_PREFIX}{key_suffix}",
+        icon="mdi:chart-bell-curve-cumulative",
+        # Deliberately no device class: SensorDeviceClass.ENERGY only accepts a
+        # total state class, and a sliding window rises and falls.
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=3,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    )
+
+
+# Energy over a set of windows, reported on every reading whatever the appliance
+# is doing. Off by default: they exist to be switched on for a cycle or two while
+# picking windows and thresholds, then switched off again.
+TUNING_ENTITY_DESCRIPTIONS = (
+    *(_tuning_description(name) for name, _ in TUNING_FIXED_WINDOWS),
+    _tuning_description(TUNING_FINISHED),
+    _tuning_description(TUNING_POST_CYCLE),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
     entry: ApplianceMonitorConfigEntry,
@@ -95,7 +128,7 @@ async def async_setup_entry(
             coordinator=entry.runtime_data.coordinator,
             entity_description=entity_description,
         )
-        for entity_description in ENTITY_DESCRIPTIONS
+        for entity_description in (*ENTITY_DESCRIPTIONS, *TUNING_ENTITY_DESCRIPTIONS)
     )
 
 
@@ -118,3 +151,9 @@ class ApplianceMonitorSensor(ApplianceMonitorEntity, SensorEntity):
     def native_value(self) -> str | float | datetime | None:
         """Return the current sensor value."""
         return self.coordinator.data.get(self.entity_description.key)  # type: ignore[return-value]
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return this sensor's attributes, for the sensors that publish any."""
+        attributes = self.coordinator.data.get("attributes", {})
+        return attributes.get(self.entity_description.key)

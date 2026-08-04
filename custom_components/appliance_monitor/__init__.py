@@ -99,7 +99,7 @@ async def async_setup_entry(
             and new_state.state == old_state.state
         ):
             return
-        await coordinator.async_refresh()
+        await coordinator.async_source_changed()
 
     entry.async_on_unload(
         async_track_state_change_event(
