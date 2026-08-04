@@ -13,13 +13,13 @@ from custom_components.appliance_monitor.state_machine import (
 
 START_THRESHOLD: float = 10.0
 FINISHED_WINDOW: float = 300.0
-FINISHED_ENERGY_WH: float = 0.3  # ≈ 3.6 W held over the window
+FINISHED_POWER_W: float = 3.6  # averaged across the window
 POST_CYCLE_WINDOW: float = 300.0
-POST_CYCLE_ENERGY_WH: float = 2.7  # ≈ 32 W held over the window
+POST_CYCLE_POWER_W: float = 32.4  # averaged across the window
 
-# Power levels, chosen relative to the budgets above.
-WORKING: float = 100.0  # busts both budgets
-POST_CYCLE: float = 20.0  # under the post-cycle budget, over the finished one
+# Power levels, chosen relative to the thresholds above.
+WORKING: float = 100.0  # above both thresholds
+POST_CYCLE: float = 20.0  # under the post-cycle threshold, over the finished one
 QUIET: float = 1.0  # under both
 ABOVE_START: float = START_THRESHOLD + 1.0
 BELOW_START: float = START_THRESHOLD - 1.0  # draws, but never starts a cycle
@@ -59,7 +59,7 @@ def sm() -> ApplianceStateMachine:
     return ApplianceStateMachine(
         start_threshold=START_THRESHOLD,
         finished_window_seconds=FINISHED_WINDOW,
-        finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+        finished_power_threshold_w=FINISHED_POWER_W,
     )
 
 
@@ -69,10 +69,10 @@ def post_sm() -> ApplianceStateMachine:
     return ApplianceStateMachine(
         start_threshold=START_THRESHOLD,
         finished_window_seconds=FINISHED_WINDOW,
-        finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+        finished_power_threshold_w=FINISHED_POWER_W,
         post_cycle_enabled=True,
         post_cycle_window_seconds=POST_CYCLE_WINDOW,
-        post_cycle_energy_threshold_wh=POST_CYCLE_ENERGY_WH,
+        post_cycle_power_threshold_w=POST_CYCLE_POWER_W,
     )
 
 
@@ -144,7 +144,7 @@ class TestIdleTransitions:
 
 
 class TestRunningTransitions:
-    """RUNNING ends on the energy consumed within the sliding window."""
+    """RUNNING ends on the average power across the sliding window."""
 
     def test_no_verdict_before_window_is_full(self, sm: ApplianceStateMachine) -> None:
         """A cycle shorter than the window can never be declared finished."""
@@ -153,7 +153,7 @@ class TestRunningTransitions:
         assert sm.state is ApplianceState.RUNNING
 
     def test_finishes_after_a_quiet_window(self, sm: ApplianceStateMachine) -> None:
-        """A full window under the energy budget ends the cycle."""
+        """A full window under the threshold ends the cycle."""
         sm.update(ABOVE_START, _t(0))
         _feed(sm, QUIET, 10, FINISHED_WINDOW)
         assert sm.state is ApplianceState.FINISHED
@@ -181,14 +181,14 @@ class TestRunningTransitions:
         """
         end = _run_cycle(sm)
         end = _feed(sm, QUIET, end, FINISHED_WINDOW / 2)
-        sm.update(50.0, _t(end + 10))  # blip worth ≈0.14 Wh
+        sm.update(50.0, _t(end + 10))  # one blip, averaged away
         _feed(sm, QUIET, end + 20, FINISHED_WINDOW / 2)
         assert sm.state is ApplianceState.FINISHED
 
     def test_sustained_draw_inside_window_prevents_finish(
         self, sm: ApplianceStateMachine
     ) -> None:
-        """Draw that busts the budget keeps the cycle open even if it is low."""
+        """Draw above the threshold keeps the cycle open even if it is low."""
         end = _run_cycle(sm)
         _feed(sm, POST_CYCLE, end, FINISHED_WINDOW * 2)
         assert sm.state is ApplianceState.RUNNING
@@ -209,7 +209,7 @@ class TestRunningTransitions:
 
 
 class TestZeroWindow:
-    """A window of 0 takes the same check at a point: watts, not Wh."""
+    """A window of 0 is the same measure taken at a point."""
 
     @pytest.fixture
     def instant_sm(self) -> ApplianceStateMachine:
@@ -217,7 +217,7 @@ class TestZeroWindow:
         return ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=0,
-            finished_energy_threshold_wh=3.0,  # read as watts
+            finished_power_threshold_w=3.0,
         )
 
     def test_finishes_on_first_low_reading(
@@ -243,42 +243,42 @@ class TestObservedWindows:
     """Windows kept for measuring only; they must not steer detection."""
 
     OBSERVED: tuple[float, ...] = (30.0, 60.0, 600.0)
-    POWER_W: float = 3600.0  # 10 Wh per 10 s interval
+    POWER_W: float = 3600.0
 
     def _fed(self, *, observed: bool) -> ApplianceStateMachine:
         """Return a machine fed 3600 W for 600 s on a 10 s grid."""
         sm = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=FINISHED_WINDOW,
-            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            finished_power_threshold_w=FINISHED_POWER_W,
             observed_windows_seconds=self.OBSERVED if observed else (),
         )
         _feed(sm, self.POWER_W, 0, 600)
         return sm
 
     def test_measures_each_observed_window(self) -> None:
-        """Every observed window reports the energy of its own span."""
+        """Steady draw reads the same at every window — that is the point of a rate."""
         sm = self._fed(observed=True)
-        assert sm.window_energy_wh(30.0) == pytest.approx(30.0)
-        assert sm.window_energy_wh(600.0) == pytest.approx(600.0)
+        assert sm.window_measure(30.0).value == pytest.approx(self.POWER_W)
+        assert sm.window_measure(600.0).value == pytest.approx(self.POWER_W)
 
     def test_retention_covers_the_longest_observed_window(self) -> None:
         """A window longer than any detection window still gets its samples."""
-        assert self._fed(observed=True).window_energy_wh(600.0) is not None
+        assert self._fed(observed=True).window_measure(600.0).value is not None
         # Without it, history is trimmed to the 300 s detection window.
-        assert self._fed(observed=False).window_energy_wh(600.0) is None
+        assert self._fed(observed=False).window_measure(600.0).value is None
 
     def test_detection_is_unaffected(self) -> None:
         """Observing extra windows changes nothing about the state machine."""
         plain = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=FINISHED_WINDOW,
-            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            finished_power_threshold_w=FINISHED_POWER_W,
         )
         observed = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=FINISHED_WINDOW,
-            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            finished_power_threshold_w=FINISHED_POWER_W,
             observed_windows_seconds=self.OBSERVED,
         )
         for i in range(200):
@@ -323,7 +323,7 @@ class TestCycleScoping:
         sm.update(ABOVE_START, _t(start + 10))
         assert sm.state is ApplianceState.RUNNING
         # The window reaches back before the cycle, so there is no verdict...
-        assert sm._is_below(FINISHED_WINDOW, FINISHED_ENERGY_WH) is None
+        assert sm._is_below(FINISHED_WINDOW, FINISHED_POWER_W) is None
         # ...but the measurement itself is there, carrying the earlier draw.
         assert sm.window_measure(FINISHED_WINDOW).value > 0
 
@@ -364,7 +364,7 @@ class TestSourceSampleCount:
         measure = sm.window_measure(300.0)
         assert measure.source_sample_count == 5
         # The measure itself still uses every reading, poll ones included.
-        assert measure.value == pytest.approx(100.0 * 300 / 3600)
+        assert measure.value == pytest.approx(100.0)
 
     def test_detection_ignores_provenance(self, sm: ApplianceStateMachine) -> None:
         """Poll re-reads are still evidence of consumption."""
@@ -380,30 +380,36 @@ class TestSharedWindowMeasure:
         """The value a threshold is compared against is the one published."""
         _feed(sm, 3600.0, 0, 600)
         measure = sm.window_measure(FINISHED_WINDOW)
-        assert measure.value == pytest.approx(sm.window_energy_wh(FINISHED_WINDOW))
+        assert measure.value == pytest.approx(3600.0)
         assert sm._is_below(FINISHED_WINDOW, measure.value + 1) is True
         assert sm._is_below(FINISHED_WINDOW, measure.value) is False
 
-    def test_zero_window_measures_power_not_energy(self) -> None:
-        """A degenerate window reports the live reading, flagged as watts."""
+    def test_zero_window_is_the_same_quantity(self) -> None:
+        """
+        A window of 0 needs different arithmetic, not a different meaning.
+
+        Both are watts, so nothing about the value has to be interpreted
+        differently — which is what a Wh measure could not offer.
+        """
         instant = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=0,
-            finished_energy_threshold_wh=3.0,  # read as watts
+            finished_power_threshold_w=3.0,
+            # Detection needs no history here, so ask for the 30 s of samples
+            # the comparison below reads back over.
+            observed_windows_seconds=(30.0,),
         )
         _feed(instant, 3600.0, 0, 60)
-        measure = instant.window_measure(0)
-        assert measure.is_power
-        assert measure.value == pytest.approx(3600.0)
-        # Not 0.0 Wh, which is what measuring a zero-length span would give.
-        assert instant.window_energy_wh(0) is None
+        assert instant.window_measure(0).value == pytest.approx(3600.0)
+        # A steady draw reads identically however long the window is.
+        assert instant.window_measure(30).value == pytest.approx(3600.0)
 
     def test_zero_window_check_uses_that_measure(self) -> None:
         """The instant check reads the same value it reports."""
         instant = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=0,
-            finished_energy_threshold_wh=3.0,
+            finished_power_threshold_w=3.0,
         )
         _feed(instant, QUIET, 0, 60)
         assert instant.window_measure(0).value == pytest.approx(QUIET)
@@ -414,43 +420,64 @@ class TestWindowShorterThanUpdates:
     """A window below the source's update interval still measures its own span."""
 
     UPDATE_INTERVAL: float = 10.0
-    POWER_W: float = 3600.0  # 10 Wh per 10 s interval
+    POWER_W: float = 3600.0
 
     def _fed(self, window_seconds: float) -> ApplianceStateMachine:
         """Return a machine fed constant power on a 10 s grid."""
         sm = ApplianceStateMachine(
             start_threshold=START_THRESHOLD,
             finished_window_seconds=window_seconds,
-            finished_energy_threshold_wh=6.0,
+            finished_power_threshold_w=1000.0,
         )
         for i in range(6):
             sm.update(self.POWER_W, _t(i * self.UPDATE_INTERVAL))
         return sm
 
-    def test_measures_a_share_of_the_interval(self) -> None:
-        """Half a sample interval of window measures half its energy."""
-        assert self._fed(5.0).window_energy_wh(5.0) == pytest.approx(5.0)
+    def test_sub_interval_window_is_not_inflated(self) -> None:
+        """
+        Half an interval of window reads the draw, not double it.
+
+        The straddling reading is prorated to the share of its interval that
+        falls inside. Taking the whole interval's energy and dividing by the
+        shorter window would report twice the actual draw.
+        """
+        assert self._fed(5.0).window_measure(5.0).value == pytest.approx(self.POWER_W)
 
     def test_matches_the_interval_exactly(self) -> None:
-        """A window equal to the update interval measures it whole."""
-        assert self._fed(10.0).window_energy_wh(10.0) == pytest.approx(10.0)
+        """A window equal to the update interval reads the same draw."""
+        assert self._fed(10.0).window_measure(10.0).value == pytest.approx(self.POWER_W)
 
     def test_window_length_changes_the_verdict(self) -> None:
         """
-        Decide differently at 5 s than at 10 s on the same threshold.
+        Windows of different lengths average different spans, and can disagree.
 
-        Sub-interval windows are not rounded up to the update interval: the
-        straddling sample is prorated, so the threshold stays meaningful.
+        Power drops to zero at the end, so a short window sees only the quiet
+        while a longer one still carries the work before it.
         """
-        assert self._fed(5.0).state is ApplianceState.FINISHED  # 5 Wh < 6 Wh
-        assert self._fed(10.0).state is ApplianceState.RUNNING  # 10 Wh > 6 Wh
+
+        def fed(window_seconds: float) -> ApplianceStateMachine:
+            sm = ApplianceStateMachine(
+                start_threshold=START_THRESHOLD,
+                finished_window_seconds=window_seconds,
+                finished_power_threshold_w=500.0,
+            )
+            for i in range(5):
+                sm.update(self.POWER_W, _t(i * self.UPDATE_INTERVAL))
+            sm.update(0.0, _t(50))
+            sm.update(0.0, _t(60))
+            return sm
+
+        assert fed(10.0).window_measure(10.0).value == pytest.approx(0.0)
+        assert fed(20.0).window_measure(20.0).value == pytest.approx(900.0)
+        assert fed(10.0).state is ApplianceState.FINISHED  # 0 W < 500 W
+        assert fed(20.0).state is ApplianceState.RUNNING  # 900 W > 500 W
 
 
 class TestPostCycle:
     """The optional phase between a finished programme and a quiet appliance."""
 
     def test_enters_post_cycle(self, post_sm: ApplianceStateMachine) -> None:
-        """Draw under the post-cycle budget ends the working phase."""
+        """Draw under the post-cycle threshold ends the working phase."""
         end = _run_cycle(post_sm)
         _feed(post_sm, POST_CYCLE, end, POST_CYCLE_WINDOW)
         assert post_sm.state is ApplianceState.POST_CYCLE
@@ -596,7 +623,7 @@ class TestStartHysteresis:
             start_threshold=START_THRESHOLD,
             start_delay_seconds=self.START_DELAY,
             finished_window_seconds=FINISHED_WINDOW,
-            finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+            finished_power_threshold_w=FINISHED_POWER_W,
         )
 
     def test_stays_idle_before_delay_expires(

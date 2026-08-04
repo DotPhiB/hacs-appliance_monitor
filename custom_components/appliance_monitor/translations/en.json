@@ -60,25 +60,25 @@
                 "name": "Total Energy"
             },
             "tuning_30s": {
-                "name": "Tuning: energy per 30 s"
+                "name": "Tuning: avg power over 30 s"
             },
             "tuning_1m": {
-                "name": "Tuning: energy per 1 min"
+                "name": "Tuning: avg power over 1 min"
             },
             "tuning_2m": {
-                "name": "Tuning: energy per 2 min"
+                "name": "Tuning: avg power over 2 min"
             },
             "tuning_5m": {
-                "name": "Tuning: energy per 5 min"
+                "name": "Tuning: avg power over 5 min"
             },
             "tuning_10m": {
-                "name": "Tuning: energy per 10 min"
+                "name": "Tuning: avg power over 10 min"
             },
             "tuning_finished_window": {
-                "name": "Tuning: energy per finished window"
+                "name": "Tuning: avg power over finished window"
             },
             "tuning_post_cycle_window": {
-                "name": "Tuning: energy per post-cycle window"
+                "name": "Tuning: avg power over post-cycle window"
             }
         }
     },
@@ -90,19 +90,19 @@
                     "start_threshold": "Start threshold (W)",
                     "start_delay": "Start delay (s)",
                     "finished_window": "Finished window (s)",
-                    "finished_energy_threshold": "Finished energy threshold (Wh)",
                     "post_cycle_enabled": "Detect post-cycle phase",
                     "post_cycle_window": "Post-cycle window (s)",
-                    "post_cycle_energy_threshold": "Post-cycle energy threshold (Wh)"
+                    "finished_power_threshold": "Finished power threshold (W)",
+                    "post_cycle_power_threshold": "Post-cycle power threshold (W)"
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started. Starting is judged on the live reading, so a cycle is picked up immediately.",
                     "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
-                    "finished_window": "Length of the sliding window the cycle is judged over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 for an instant verdict on each reading — useful for appliances that drop straight to zero on completion.",
-                    "finished_energy_threshold": "The cycle counts as finished once less than this much energy is used within the window. 0.3 Wh over 5 minutes is about 3.6 W average. With a window of 0 the same measure is taken at a point rather than over a span, so the value is read as watts and compared against each reading as it arrives.",
+                    "finished_window": "Length of the sliding window the average is taken over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 to judge each reading on its own.",
                     "post_cycle_enabled": "Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling. Splits the end of a cycle into two states: the programme being done, and the appliance going quiet afterwards. Without it, both are reported as one 'finished'.",
-                    "post_cycle_window": "Sliding window for the post-cycle check. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
-                    "post_cycle_energy_threshold": "The programme counts as done once less than this much energy is used within the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase — 2.7 Wh over 5 minutes is about 32 W average."
+                    "post_cycle_window": "Sliding window for the post-cycle average. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
+                    "finished_power_threshold": "The cycle counts as finished once the appliance averages less than this much power across the window. A window of 0 compares each reading as it arrives instead.",
+                    "post_cycle_power_threshold": "The programme counts as done once the appliance averages less than this much power across the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase."
                 }
             },
             "confirm_non_power": {
@@ -126,19 +126,19 @@
                     "start_threshold": "Start threshold (W)",
                     "start_delay": "Start delay (s)",
                     "finished_window": "Finished window (s)",
-                    "finished_energy_threshold": "Finished energy threshold (Wh)",
                     "post_cycle_enabled": "Detect post-cycle phase",
                     "post_cycle_window": "Post-cycle window (s)",
-                    "post_cycle_energy_threshold": "Post-cycle energy threshold (Wh)"
+                    "finished_power_threshold": "Finished power threshold (W)",
+                    "post_cycle_power_threshold": "Post-cycle power threshold (W)"
                 },
                 "data_description": {
                     "start_threshold": "Power above this level signals the appliance has started. Starting is judged on the live reading, so a cycle is picked up immediately.",
                     "start_delay": "Seconds power must stay at or above the start threshold before the cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed.",
-                    "finished_window": "Length of the sliding window the cycle is judged over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 for an instant verdict on each reading — useful for appliances that drop straight to zero on completion.",
-                    "finished_energy_threshold": "The cycle counts as finished once less than this much energy is used within the window. 0.3 Wh over 5 minutes is about 3.6 W average. With a window of 0 the same measure is taken at a point rather than over a span, so the value is read as watts and compared against each reading as it arrives.",
+                    "finished_window": "Length of the sliding window the average is taken over. Shorter reacts faster but is easier to fool by a low-draw phase mid-cycle. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 to judge each reading on its own.",
                     "post_cycle_enabled": "Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling. Splits the end of a cycle into two states: the programme being done, and the appliance going quiet afterwards. Without it, both are reported as one 'finished'.",
-                    "post_cycle_window": "Sliding window for the post-cycle check. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
-                    "post_cycle_energy_threshold": "The programme counts as done once less than this much energy is used within the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase — 2.7 Wh over 5 minutes is about 32 W average."
+                    "post_cycle_window": "Sliding window for the post-cycle average. It must be long enough that the working phase never looks this quiet, so appliances that draw continuously while working can use a much shorter one.",
+                    "finished_power_threshold": "The cycle counts as finished once the appliance averages less than this much power across the window. A window of 0 compares each reading as it arrives instead.",
+                    "post_cycle_power_threshold": "The programme counts as done once the appliance averages less than this much power across the post-cycle window. Must sit above the appliance's post-cycle draw and below its quietest working phase."
                 }
             }
         }

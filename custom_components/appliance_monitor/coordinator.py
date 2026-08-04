@@ -10,23 +10,22 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.dt import utcnow
 
 from .const import (
-    CONF_FINISHED_ENERGY_THRESHOLD,
+    CONF_FINISHED_POWER_THRESHOLD,
     CONF_FINISHED_WINDOW,
     CONF_POST_CYCLE_ENABLED,
-    CONF_POST_CYCLE_ENERGY_THRESHOLD,
+    CONF_POST_CYCLE_POWER_THRESHOLD,
     CONF_POST_CYCLE_WINDOW,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
-    DEFAULT_FINISHED_ENERGY_THRESHOLD,
+    DEFAULT_FINISHED_POWER_THRESHOLD,
     DEFAULT_FINISHED_WINDOW,
     DEFAULT_POST_CYCLE_ENABLED,
-    DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+    DEFAULT_POST_CYCLE_POWER_THRESHOLD,
     DEFAULT_POST_CYCLE_WINDOW,
     DEFAULT_START_DELAY,
     DOMAIN,
     LOGGER,
-    SECONDS_PER_HOUR,
     TRIGGER_COMMAND,
     TRIGGER_POLL,
     TRIGGER_SOURCE_UPDATE,
@@ -35,7 +34,7 @@ from .const import (
     TUNING_KEY_PREFIX,
     TUNING_POST_CYCLE,
 )
-from .state_machine import ApplianceState, ApplianceStateMachine, WindowMeasure
+from .state_machine import ApplianceState, ApplianceStateMachine
 
 STORAGE_VERSION = 1
 PERSIST_DELAY_SECONDS = 10.0
@@ -54,19 +53,6 @@ def _headroom_ratio(value: float | None, threshold: float) -> float | None:
     if value is None or threshold <= 0:
         return None
     return round(value / threshold, HEADROOM_PRECISION)
-
-
-def _average_power_w(measure: WindowMeasure, window_seconds: float) -> float | None:
-    """
-    Return the window's energy expressed as the average power over it.
-
-    A zero-length window already measures power, so it passes through.
-    """
-    if measure.value is None:
-        return None
-    if measure.is_power:
-        return round(measure.value, HEADROOM_PRECISION)
-    return round(measure.value * SECONDS_PER_HOUR / window_seconds, HEADROOM_PRECISION)
 
 
 if TYPE_CHECKING:
@@ -99,8 +85,8 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             finished_window_seconds=self._conf(
                 CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW
             ),
-            finished_energy_threshold_wh=self._conf(
-                CONF_FINISHED_ENERGY_THRESHOLD, DEFAULT_FINISHED_ENERGY_THRESHOLD
+            finished_power_threshold_w=self._conf(
+                CONF_FINISHED_POWER_THRESHOLD, DEFAULT_FINISHED_POWER_THRESHOLD
             ),
             post_cycle_enabled=self._conf(
                 CONF_POST_CYCLE_ENABLED, DEFAULT_POST_CYCLE_ENABLED
@@ -108,8 +94,8 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             post_cycle_window_seconds=self._conf(
                 CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW
             ),
-            post_cycle_energy_threshold_wh=self._conf(
-                CONF_POST_CYCLE_ENERGY_THRESHOLD, DEFAULT_POST_CYCLE_ENERGY_THRESHOLD
+            post_cycle_power_threshold_w=self._conf(
+                CONF_POST_CYCLE_POWER_THRESHOLD, DEFAULT_POST_CYCLE_POWER_THRESHOLD
             ),
             observed_windows_seconds=[width for _, width in TUNING_FIXED_WINDOWS],
         )
@@ -239,8 +225,8 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 float(self._conf(CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW)),
                 float(
                     self._conf(
-                        CONF_FINISHED_ENERGY_THRESHOLD,
-                        DEFAULT_FINISHED_ENERGY_THRESHOLD,
+                        CONF_FINISHED_POWER_THRESHOLD,
+                        DEFAULT_FINISHED_POWER_THRESHOLD,
                     )
                 ),
             ),
@@ -249,8 +235,8 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 float(self._conf(CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW)),
                 float(
                     self._conf(
-                        CONF_POST_CYCLE_ENERGY_THRESHOLD,
-                        DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+                        CONF_POST_CYCLE_POWER_THRESHOLD,
+                        DEFAULT_POST_CYCLE_POWER_THRESHOLD,
                     )
                 ),
             ),
@@ -263,23 +249,14 @@ class ApplianceMonitorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for name, window, threshold in self._tuning_windows():
             key = f"{TUNING_KEY_PREFIX}{name}"
             measure = self._state_machine.window_measure(window)
-            # A zero-length window is judged on live power, not on an energy
-            # budget, so there is no Wh figure to plot — the source's own power
-            # graph is the tuning view in that case.
-            values[key] = None if measure.is_power else measure.value
+            values[key] = measure.value
             attrs: dict[str, Any] = {
                 "window_seconds": window,
                 "source_samples_in_window": measure.source_sample_count,
                 "trigger": self._trigger,
-                "measures": "power" if measure.is_power else "energy",
-                # The same measure as a rate. Unlike the Wh figure this does not
-                # rescale when the window does, so it stays comparable both
-                # across the fixed windows and across a change of setting.
-                "average_power_w": _average_power_w(measure, window),
             }
             if threshold is not None:
-                attrs["threshold"] = threshold
-                attrs["threshold_unit"] = "W" if measure.is_power else "Wh"
+                attrs["threshold_w"] = threshold
                 attrs["headroom_ratio"] = _headroom_ratio(measure.value, threshold)
             attributes[key] = attrs
         return values, attributes

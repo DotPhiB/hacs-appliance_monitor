@@ -11,18 +11,18 @@ from homeassistant.const import ATTR_DEVICE_CLASS
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_FINISHED_ENERGY_THRESHOLD,
+    CONF_FINISHED_POWER_THRESHOLD,
     CONF_FINISHED_WINDOW,
     CONF_POST_CYCLE_ENABLED,
-    CONF_POST_CYCLE_ENERGY_THRESHOLD,
+    CONF_POST_CYCLE_POWER_THRESHOLD,
     CONF_POST_CYCLE_WINDOW,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
-    DEFAULT_FINISHED_ENERGY_THRESHOLD,
+    DEFAULT_FINISHED_POWER_THRESHOLD,
     DEFAULT_FINISHED_WINDOW,
     DEFAULT_POST_CYCLE_ENABLED,
-    DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+    DEFAULT_POST_CYCLE_POWER_THRESHOLD,
     DEFAULT_POST_CYCLE_WINDOW,
     DEFAULT_START_DELAY,
     DEFAULT_START_THRESHOLD,
@@ -46,14 +46,14 @@ def _window_selector() -> selector.NumberSelector:
     )
 
 
-def _energy_selector() -> selector.NumberSelector:
-    """Build the selector for an energy budget within a window."""
+def _power_selector() -> selector.NumberSelector:
+    """Build the selector for an average-power threshold over a window."""
     return selector.NumberSelector(
         selector.NumberSelectorConfig(
             min=0,
-            max=1000,
+            max=10000,
             step=0.1,
-            unit_of_measurement="Wh",
+            unit_of_measurement="W",
             mode=selector.NumberSelectorMode.BOX,
         ),
     )
@@ -92,11 +92,11 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW),
             ): _window_selector(),
             vol.Required(
-                CONF_FINISHED_ENERGY_THRESHOLD,
+                CONF_FINISHED_POWER_THRESHOLD,
                 default=defaults.get(
-                    CONF_FINISHED_ENERGY_THRESHOLD, DEFAULT_FINISHED_ENERGY_THRESHOLD
+                    CONF_FINISHED_POWER_THRESHOLD, DEFAULT_FINISHED_POWER_THRESHOLD
                 ),
-            ): _energy_selector(),
+            ): _power_selector(),
             vol.Required(
                 CONF_POST_CYCLE_ENABLED,
                 default=defaults.get(
@@ -108,12 +108,12 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW),
             ): _window_selector(),
             vol.Required(
-                CONF_POST_CYCLE_ENERGY_THRESHOLD,
+                CONF_POST_CYCLE_POWER_THRESHOLD,
                 default=defaults.get(
-                    CONF_POST_CYCLE_ENERGY_THRESHOLD,
-                    DEFAULT_POST_CYCLE_ENERGY_THRESHOLD,
+                    CONF_POST_CYCLE_POWER_THRESHOLD,
+                    DEFAULT_POST_CYCLE_POWER_THRESHOLD,
                 ),
-            ): _energy_selector(),
+            ): _power_selector(),
         }
     )
 

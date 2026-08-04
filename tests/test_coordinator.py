@@ -29,7 +29,7 @@ POWER_SENSOR = "sensor.fake_power"
 
 START_THRESHOLD = 10.0
 FINISHED_WINDOW = 300.0
-FINISHED_ENERGY_WH = 0.3
+FINISHED_POWER_W = 3.6
 FINISHED_WINDOW_TICKS = int(FINISHED_WINDOW) + 10
 
 
@@ -43,7 +43,7 @@ def _make_coordinator() -> ApplianceMonitorCoordinator:
     coordinator._state_machine = ApplianceStateMachine(
         start_threshold=START_THRESHOLD,
         finished_window_seconds=FINISHED_WINDOW,
-        finished_energy_threshold_wh=FINISHED_ENERGY_WH,
+        finished_power_threshold_w=FINISHED_POWER_W,
         observed_windows_seconds=[width for _, width in TUNING_FIXED_WINDOWS],
     )
     coordinator._pending_trigger = TRIGGER_POLL
@@ -220,7 +220,7 @@ def test_tuning_sensors_report_outside_a_cycle() -> None:
             mock_utcnow.return_value = t0 + timedelta(seconds=offset)
             data = _update(coordinator)
     assert coordinator._state_machine.state is ApplianceState.IDLE
-    assert data[key] == pytest.approx(0.5 * 30 / 3600, rel=1e-3)
+    assert data[key] == pytest.approx(0.5, rel=1e-3)  # 0.5 W drawn, 0.5 W averaged
 
 
 def test_tuning_window_not_yet_covered_is_none() -> None:
@@ -239,7 +239,7 @@ def test_tuning_attributes_describe_the_window() -> None:
     attrs = data["attributes"][f"{TUNING_KEY_PREFIX}30s"]
     assert attrs["window_seconds"] == 30
     assert attrs["trigger"] == TRIGGER_POLL
-    assert "threshold" not in attrs
+    assert "threshold_w" not in attrs
     assert "headroom_ratio" not in attrs
 
 
@@ -278,14 +278,14 @@ def test_headroom_ratio_locates_the_threshold() -> None:
             mock_utcnow.return_value = t0 + timedelta(seconds=offset)
             data = _update(coordinator)
     attrs = data["attributes"][f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"]
-    # 3600 W across the 300 s window is 300 Wh against a 0.3 Wh threshold.
-    expected = 300.0 / FINISHED_ENERGY_WH
+    # A steady 3600 W against a 3.6 W threshold, whatever the window length.
+    expected = 3600.0 / FINISHED_POWER_W
     assert attrs["headroom_ratio"] == pytest.approx(expected, rel=1e-3)
     assert attrs["headroom_ratio"] > 1  # still far above: nowhere near finished
 
 
-def test_average_power_normalises_the_window() -> None:
-    """Every window reports the same rate under steady draw, whatever its length."""
+def test_every_window_reports_the_same_rate_under_steady_draw() -> None:
+    """The value no longer scales with the window — that is the whole change."""
     coordinator = _make_coordinator()
     _set_source_state(coordinator, "3600.0")
     t0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -295,13 +295,9 @@ def test_average_power_normalises_the_window() -> None:
         for offset in range(0, 620, 10):
             mock_utcnow.return_value = t0 + timedelta(seconds=offset)
             data = _update(coordinator)
-    rates = [
-        data["attributes"][f"{TUNING_KEY_PREFIX}{name}"]["average_power_w"]
-        for name, _ in TUNING_FIXED_WINDOWS
-    ]
-    # The Wh figures differ 20-fold across these windows; the rate does not.
-    for rate in rates:
-        assert rate == pytest.approx(3600.0, rel=1e-3)
+    for name, _ in TUNING_FIXED_WINDOWS:
+        value = data[f"{TUNING_KEY_PREFIX}{name}"]
+        assert value == pytest.approx(3600.0, rel=1e-3)
 
 
 def test_headroom_ratio_is_none_without_a_verdict() -> None:
@@ -320,23 +316,19 @@ def test_configured_window_attributes_carry_the_threshold() -> None:
     data = _update(coordinator)
     attrs = data["attributes"][f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"]
     assert attrs["window_seconds"] == FINISHED_WINDOW
-    assert attrs["threshold"] == pytest.approx(FINISHED_ENERGY_WH)
-    assert attrs["threshold_unit"] == "Wh"
+    assert attrs["threshold_w"] == pytest.approx(FINISHED_POWER_W)
 
 
-def test_zero_window_reports_no_energy_figure() -> None:
-    """A degenerate window is judged on live power, so there is no Wh to plot."""
+def test_zero_window_reports_the_live_reading() -> None:
+    """A degenerate window measures the same quantity, at a point."""
     coordinator = _make_coordinator()
     coordinator.config_entry.options = {CONF_FINISHED_WINDOW: 0}
     _set_source_state(coordinator, "50.0")
     data = _update(coordinator)
     key = f"{TUNING_KEY_PREFIX}{TUNING_FINISHED}"
-    # Measuring a zero-length span would yield a constant, meaningless 0.0 Wh.
-    assert data[key] is None
-    attrs = data["attributes"][key]
-    assert attrs["window_seconds"] == 0
-    assert attrs["measures"] == "power"
-    assert attrs["threshold_unit"] == "W"
+    # A rate needs no special case here: the value is watts either way.
+    assert data[key] == pytest.approx(50.0)
+    assert data["attributes"][key]["window_seconds"] == 0
 
 
 def test_trigger_distinguishes_source_updates_from_polls() -> None:

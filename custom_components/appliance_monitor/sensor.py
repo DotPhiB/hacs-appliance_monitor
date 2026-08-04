@@ -10,7 +10,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
+from homeassistant.const import (
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTime,
+)
 
 from .const import (
     TUNING_FINISHED,
@@ -97,19 +102,18 @@ def _tuning_description(key_suffix: str) -> SensorEntityDescription:
         key=f"{TUNING_KEY_PREFIX}{key_suffix}",
         translation_key=f"{TUNING_KEY_PREFIX}{key_suffix}",
         icon="mdi:chart-bell-curve-cumulative",
-        # Deliberately no device class: SensorDeviceClass.ENERGY only accepts a
-        # total state class, and a sliding window rises and falls.
-        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=3,
+        suggested_display_precision=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     )
 
 
-# Energy over a set of windows, reported on every reading whatever the appliance
-# is doing. Off by default: they exist to be switched on for a cycle or two while
-# picking windows and thresholds, then switched off again.
+# Average power over a set of windows, reported on every reading whatever the
+# appliance is doing. Off by default: they exist to be switched on for a cycle or
+# two while picking windows and thresholds, then switched off again.
 TUNING_ENTITY_DESCRIPTIONS = (
     *(_tuning_description(name) for name, _ in TUNING_FIXED_WINDOWS),
     _tuning_description(TUNING_FINISHED),

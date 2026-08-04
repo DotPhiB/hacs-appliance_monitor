@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-WH_PER_KWH = 1000.0
+# 1 kWh = 3.6e6 watt-seconds. Converts between the integrated energy total and
+# the rate that both detection and the tuning sensors work in.
+W_SECONDS_PER_KWH = 3_600_000.0
 
 
 class ApplianceState(StrEnum):
@@ -43,10 +45,7 @@ class WindowMeasure:
     """One reading of a trailing window, as both checks and reports see it."""
 
     value: float | None
-    """Wh consumed over the window — or watts when it degenerates to a point."""
-
-    is_power: bool
-    """True when the window is 0 and *value* is a live reading in watts."""
+    """Average power in watts over the window, or None when there is no verdict."""
 
     source_sample_count: int
     """
@@ -77,10 +76,10 @@ class ApplianceStateMachine:
         start_threshold: float,
         start_delay_seconds: float = 0,
         finished_window_seconds: float,
-        finished_energy_threshold_wh: float,
+        finished_power_threshold_w: float,
         post_cycle_enabled: bool = False,
         post_cycle_window_seconds: float = 0,
-        post_cycle_energy_threshold_wh: float = 0,
+        post_cycle_power_threshold_w: float = 0,
         observed_windows_seconds: Sequence[float] = (),
     ) -> None:
         """
@@ -92,10 +91,10 @@ class ApplianceStateMachine:
         self._start_threshold = start_threshold
         self._start_delay_seconds = start_delay_seconds
         self._finished_window_seconds = finished_window_seconds
-        self._finished_energy_threshold_wh = finished_energy_threshold_wh
+        self._finished_power_threshold_w = finished_power_threshold_w
         self._post_cycle_enabled = post_cycle_enabled
         self._post_cycle_window_seconds = post_cycle_window_seconds
-        self._post_cycle_energy_threshold_wh = post_cycle_energy_threshold_wh
+        self._post_cycle_power_threshold_w = post_cycle_power_threshold_w
         self._observed_windows_seconds = tuple(observed_windows_seconds)
         self._state: ApplianceState = ApplianceState.IDLE
         self._state_before_disconnect: ApplianceState = ApplianceState.IDLE
@@ -140,7 +139,7 @@ class ApplianceStateMachine:
             if dt_seconds < 0:
                 dt_seconds = 0.0
             avg_power_w = (self._last_power + power) / 2.0
-            energy_kwh = avg_power_w * dt_seconds / 3_600_000.0
+            energy_kwh = avg_power_w * dt_seconds / W_SECONDS_PER_KWH
             self._total_energy_kwh += energy_kwh
             # The cycle keeps consuming while it idles after the programme, so
             # its energy runs on to FINISHED. Its duration does not: the work
@@ -179,12 +178,14 @@ class ApplianceStateMachine:
         """
         Measure the trailing window once, for both deciding and reporting.
 
-        The windowed measure is the rise of the cumulative energy curve; over
-        the window's length that is an average rate, and as the window shrinks
-        the rate converges on the power at that instant. A window of 0 is
-        therefore the same check taken at a point, with the value read in
-        watts rather than Wh — exact for appliances that drop straight to zero,
-        and as fast as the source reports.
+        The measure is the rise of the cumulative energy curve divided by the
+        window's length: the average power drawn across it. Expressing it as a
+        rate rather than an amount keeps it comparable between windows, and
+        keeps a threshold valid when the window it is judged over changes.
+
+        A window of 0 is the limit of that same quantity as the window shrinks
+        to a point, which is simply the current reading — so it needs different
+        arithmetic, not a different meaning.
 
         A `value` of None means "no verdict": the samples do not span the full
         window, as after a restart, a source outage, or early in a cycle. Every
@@ -194,13 +195,10 @@ class ApplianceStateMachine:
             last = self._samples[-1] if self._samples else None
             return WindowMeasure(
                 value=self._last_power,
-                is_power=True,
                 source_sample_count=1 if last is not None and last.from_source else 0,
             )
         if len(self._samples) < 2:  # noqa: PLR2004
-            return WindowMeasure(
-                None, is_power=False, source_sample_count=self._source_count_from(0)
-            )
+            return WindowMeasure(None, self._source_count_from(0))
         now, total, _ = self._samples[-1]
         cutoff = now - timedelta(seconds=window_seconds)
         index: int | None = None
@@ -209,9 +207,7 @@ class ApplianceStateMachine:
                 break
             index = i
         if index is None:
-            return WindowMeasure(
-                None, is_power=False, source_sample_count=self._source_count_from(0)
-            )
+            return WindowMeasure(None, self._source_count_from(0))
         # The sample at *index* sits on or before the window's edge, so only the
         # ones after it were published while the window was open.
         source_sample_count = self._source_count_from(index + 1)
@@ -227,8 +223,7 @@ class ApplianceStateMachine:
                 inside = (cutoff - base_time).total_seconds()
                 base += (next_value - base) * (inside / span)
         return WindowMeasure(
-            value=(total - base) * WH_PER_KWH,
-            is_power=False,
+            value=(total - base) * W_SECONDS_PER_KWH / window_seconds,
             source_sample_count=source_sample_count,
         )
 
@@ -237,11 +232,6 @@ class ApplianceStateMachine:
         return sum(
             1 for sample in islice(self._samples, start, None) if sample.from_source
         )
-
-    def window_energy_wh(self, window_seconds: float) -> float | None:
-        """Return Wh over the trailing window, or None if there is no verdict."""
-        measure = self.window_measure(window_seconds)
-        return None if measure.is_power else measure.value
 
     def _is_below(self, window_seconds: float, threshold: float) -> bool | None:
         """
@@ -299,13 +289,13 @@ class ApplianceStateMachine:
         if self._post_cycle_enabled:
             if self._is_below(
                 self._post_cycle_window_seconds,
-                self._post_cycle_energy_threshold_wh,
+                self._post_cycle_power_threshold_w,
             ):
                 self._end_cycle(ApplianceState.POST_CYCLE)
             return
         if self._is_below(
             self._finished_window_seconds,
-            self._finished_energy_threshold_wh,
+            self._finished_power_threshold_w,
         ):
             self._end_cycle(ApplianceState.FINISHED)
 
@@ -318,7 +308,7 @@ class ApplianceStateMachine:
         # imposition — the appliance has to be emptied for that anyway.
         if self._is_below(
             self._finished_window_seconds,
-            self._finished_energy_threshold_wh,
+            self._finished_power_threshold_w,
         ):
             self._state = ApplianceState.FINISHED
 
