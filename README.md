@@ -26,7 +26,7 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 - Optional start delay to ignore brief startup spikes (e.g. inrush current when the appliance is first plugged in)
 - Reports a **disconnected** state when the source power sensor goes unavailable, without corrupting energy totals or firing spurious transitions across the gap
 - State and lifetime totals survive Home Assistant restarts
-- All thresholds and timeouts are adjustable post-setup via the integration's options
+- All thresholds and windows are adjustable post-setup via the integration's options
 
 ---
 
@@ -69,7 +69,7 @@ Live power cannot tell a soaking washing machine from a finished one — mid-cyc
 
 Energy over a sliding window has no such blind spot: brief blips are absorbed rather than treated as evidence of life, and a genuinely quiet appliance crosses the threshold on schedule. Starting is still judged on live power, because a cycle should be picked up at once.
 
-The two are the same measurement at different scales. Energy over a window is the rise of the cumulative energy curve, and over the window's length that is an average rate — as the window shrinks, the rate converges on the power at that instant. A window of 0 is that limit: the threshold is then read in watts and compared against each reading as it arrives, which is exactly how the pre-2.0 idle threshold behaved.
+The two are the same measurement at different scales. Energy over a window is the rise of the cumulative energy curve, and over the window's length that is an average rate — as the window shrinks, the rate converges on the power at that instant. A window of 0 is that limit: the threshold is then read in watts and compared against each reading as it arrives, which is exactly how the old idle threshold behaved.
 
 Windows shorter than the source's update interval are measured too, not rounded up to it: the reading straddling the window's edge counts only for the share of its interval that falls inside. So no window length is invalid — a given window and threshold either suit your appliance and its update rate or they don't, which is what the two fields are for.
 
@@ -116,7 +116,7 @@ Each configured appliance exposes a small primary set, a set of diagnostic entit
 | Entity | Description |
 |---|---|
 | `binary_sensor.<name>_running` | On while the appliance is actively working (off during the post-cycle phase) |
-| `binary_sensor.<name>_finished` | On once the programme is done — including the post-cycle phase, since the load is ready then. Clears when a new cycle starts or the state is reset. |
+| `binary_sensor.<name>_finished` | On once the programme is done — including the post-cycle phase, since the load is ready then. Clears when a new cycle starts, or when the cycle is acknowledged with Unloaded or the state is reset. |
 | `binary_sensor.<name>_post_cycle` | On only during the post-cycle phase |
 | `sensor.<name>_cycle_count` | Number of completed cycles since the counter was last reset |
 | `sensor.<name>_cycle_start` | Timestamp when the current/last cycle started |
