@@ -127,6 +127,21 @@ class ApplianceStateMachine:
         self._cycle_energy_kwh = 0.0
         self._last_update = None
 
+    def mark_unloaded(self) -> None:
+        """
+        Acknowledge a finished cycle: FINISHED to IDLE.
+
+        A no-op in any other state. Last-cycle metrics are kept.
+        """
+        if self._state is ApplianceState.FINISHED:
+            self._state = ApplianceState.IDLE
+        elif (
+            self._state is ApplianceState.DISCONNECTED
+            and self._state_before_disconnect is ApplianceState.FINISHED
+        ):
+            # Reconnect resumes IDLE instead of FINISHED.
+            self._state_before_disconnect = ApplianceState.IDLE
+
     def mark_disconnected(self) -> None:
         """
         Mark the source sensor as unavailable.

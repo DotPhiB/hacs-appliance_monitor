@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from .data import ApplianceMonitorConfigEntry
 
 _BUTTONS: tuple[tuple[ButtonEntityDescription, str], ...] = (
+    # No entity_category: everyday action, shown in the main controls.
+    (
+        ButtonEntityDescription(
+            key="unloaded",
+            translation_key="unloaded",
+            icon="mdi:basket-unfill",
+        ),
+        "unloaded",
+    ),
     (
         ButtonEntityDescription(
             key="reset_state",

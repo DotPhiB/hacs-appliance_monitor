@@ -13,6 +13,9 @@
             }
         },
         "button": {
+            "unloaded": {
+                "name": "Unloaded"
+            },
             "reset_state": {
                 "name": "Reset State"
             },
