@@ -53,6 +53,22 @@ def _run_cycle(sm: ApplianceStateMachine, start: float = 0.0) -> float:
     return _feed(sm, WORKING, start, FINISHED_WINDOW)
 
 
+def _to_post_cycle(
+    sm: ApplianceStateMachine,
+    start: float,
+    step: float = 10.0,
+) -> float:
+    """Feed quiet power until the post-cycle phase begins; return that offset."""
+    offset = start
+    for _ in range(200):
+        if sm.state is ApplianceState.POST_CYCLE:
+            return offset
+        sm.update(QUIET, _t(offset))
+        offset += step
+    msg = "the post-cycle phase was never entered"
+    raise AssertionError(msg)
+
+
 @pytest.fixture
 def sm() -> ApplianceStateMachine:
     """Return a fresh state machine with the post-cycle phase disabled."""
@@ -335,6 +351,55 @@ class TestCycleScoping:
         start = FINISHED_WINDOW + 10
         sm.update(ABOVE_START, _t(start))
         _feed(sm, QUIET, start + 10, FINISHED_WINDOW)
+        assert sm.state is ApplianceState.FINISHED
+
+
+class TestPhaseScoping:
+    """Each phase is judged on its own readings, not on the phase before it."""
+
+    SHORT_FINISHED_WINDOW: float = 60.0
+
+    def _machine(self) -> ApplianceStateMachine:
+        """Return a machine whose finished window is the shorter of the two."""
+        return ApplianceStateMachine(
+            start_threshold=START_THRESHOLD,
+            finished_window_seconds=self.SHORT_FINISHED_WINDOW,
+            finished_power_threshold_w=FINISHED_POWER_W,
+            post_cycle_enabled=True,
+            post_cycle_window_seconds=POST_CYCLE_WINDOW,
+            post_cycle_power_threshold_w=POST_CYCLE_POWER_W,
+        )
+
+    def test_post_cycle_cannot_end_on_the_reading_that_starts_it(self) -> None:
+        """
+        A phase must be observed for its own window before it can be left.
+
+        The post-cycle window is the longer of the two here, so by the time it
+        falls below its threshold the shorter finished window has been quiet for
+        a while already. Judged on those readings alone the phase would begin
+        and end on the same reading.
+        """
+        sm = self._machine()
+        _to_post_cycle(sm, _run_cycle(sm) + 10)
+        assert sm.state is ApplianceState.POST_CYCLE
+
+    def test_no_verdict_until_the_window_lies_inside_the_phase(self) -> None:
+        """The finished check abstains while its window predates the phase."""
+        sm = self._machine()
+        _to_post_cycle(sm, _run_cycle(sm) + 10)
+        assert sm._is_below(self.SHORT_FINISHED_WINDOW, FINISHED_POWER_W) is None
+
+    def test_observation_sees_across_the_phase_boundary(self) -> None:
+        """Scoping is the decision's, not the measurement's — as at cycle start."""
+        sm = self._machine()
+        _to_post_cycle(sm, _run_cycle(sm) + 10)
+        assert sm.window_measure(self.SHORT_FINISHED_WINDOW).value is not None
+
+    def test_finished_arrives_one_window_into_the_phase(self) -> None:
+        """Once the window fits inside the post-cycle phase, FINISHED follows."""
+        sm = self._machine()
+        entered = _to_post_cycle(sm, _run_cycle(sm) + 10)
+        _feed(sm, QUIET, entered, self.SHORT_FINISHED_WINDOW)
         assert sm.state is ApplianceState.FINISHED
 
 
