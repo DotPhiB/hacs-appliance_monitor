@@ -104,6 +104,22 @@ The two appliances want opposite settings, which is why every check has its own 
 
 Rule of thumb: put each threshold in the gap between the two bands it separates, then make the window long enough that the phase below it never falls silent for a whole window.
 
+#### Two worked configurations
+
+The same two appliances as complete settings. The windows and thresholds are the ones derived above; what the bands do not cover is the **start threshold**, which is judged on the live reading and therefore has to be read off the raw trace rather than off an average.
+
+| Field | Washing machine | Dryer |
+|---|---|---|
+| Start threshold | 40 W | 500 W |
+| Start delay | 0 s | 0 s |
+| Detect post-cycle phase | on | on |
+| Post-cycle window / threshold | 300 s / 20 W | 60 s / 50 W |
+| Finished window / threshold | 300 s / 2 W | 720 s / 1 W |
+
+- The **washer starts messily**: filling and pumping, not a clean step. It first reaches 40 W between 48 and 155 seconds after leaving standby, and holds it for about five seconds at a time. That is why the start delay is 0 — more than a couple of seconds and no real start survives it. The threshold itself sits above everything the machine shows outside the working phase: a few watts of lit display, and post-cycle blips reaching 38.6 W. It is cleared by the drum and pump alone, before the heating element comes on, so cold programmes are detected too.
+- The **dryer starts cleanly**: the heating element steps to ~2000 W within a second and stays there for the rest of the cycle. Any threshold from 10 W to 1500 W detects that equally fast, so putting it at 500 W costs nothing and buys clearance over the 350 W anti-crease tumbles.
+- That clearance is belt-and-braces rather than load-bearing, in both cases. No cycle can start out of the post-cycle phase, and neither appliance reaches `finished` while it is still fidgeting — the dryer's 720 s / 1 W check holds it in post-cycle through the whole tumble train. So if you need a programme that never runs the heater, a much lower dryer threshold is available: the tumbles have no `finished` state to restart from.
+
 #### Measuring your own appliance
 
 The numbers above came from somewhere, and the **tuning sensors** let you produce the same table for your own machine without doing the arithmetic by hand. A power graph will not tell you this: energy over a window is an area, and areas are close to impossible to compare by eye.
