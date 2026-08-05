@@ -1,28 +1,36 @@
 blueprint:
   name: Appliance Monitor – Finished Notification
   description: >
-    Sends a notification when a monitored appliance finishes a cycle.
-    Optionally shows cycle duration and energy consumed. Includes a
-    "Reset" action in the mobile notification that presses the Reset State
-    button without leaving your phone.
+    Sends a notification when a monitored appliance finishes a cycle — the
+    moment the load is ready. With the post-cycle phase enabled that is the
+    start of that phase, not the later point where the appliance finally goes
+    quiet. Optionally shows cycle duration and energy consumed. Includes an
+    "Unloaded" action in the mobile notification that acknowledges the cycle
+    without leaving your phone.
   domain: automation
 
   input:
     finished_sensor:
       name: Finished Sensor
-      description: The "finished" binary sensor exposed by the Appliance Monitor integration.
+      description: >
+        The "finished" binary sensor exposed by the Appliance Monitor
+        integration. It turns on as soon as the programme is done, post-cycle
+        phase included, and off again when the cycle is acknowledged or a new
+        one starts.
       selector:
         entity:
           filter:
             - integration: appliance_monitor
               domain: binary_sensor
 
-    reset_button:
-      name: Reset Button
+    unloaded_button:
+      name: Unloaded Button
       description: >
-        The "Reset State" button from Appliance Monitor. Tapping "Reset" in the
-        notification presses this button to return the appliance to idle.
-        Leave blank to disable.
+        The "Unloaded" button from Appliance Monitor — not "Reset State", which
+        is the escape hatch for a stuck machine and discards the current cycle.
+        Tapping "Unloaded" in the notification presses it, returning the
+        appliance to idle while keeping the last cycle's duration and energy
+        readable. Leave blank to send a notification without an action.
       default: ""
       selector:
         entity:
@@ -34,7 +42,8 @@ blueprint:
       name: Cycle Duration Sensor
       description: >
         The "Cycle Duration" sensor from Appliance Monitor. When set, the
-        notification includes how long the cycle took. Leave blank to skip.
+        notification includes how long the cycle took. It freezes when the work
+        stops, so it is final by the time this fires. Leave blank to skip.
       default: ""
       selector:
         entity:
@@ -46,7 +55,9 @@ blueprint:
       name: Cycle Energy Sensor
       description: >
         The "Cycle Energy" sensor from Appliance Monitor. When set, the
-        notification includes the energy consumed during the cycle.
+        notification includes the energy consumed during the cycle. Unlike the
+        duration it keeps counting through the post-cycle phase, so the figure
+        in the message is the energy up to the moment the load became ready.
         Leave blank to skip.
       default: ""
       selector:
@@ -74,8 +85,8 @@ blueprint:
         text:
 
 # Run one branch at a time and drop overlapping triggers silently: the
-# appliance_reset run that action_reset's button press sets off is intentionally
-# discarded.
+# appliance_cleared run that action_unloaded's button press sets off is
+# intentionally discarded.
 mode: single
 max_exceeded: silent
 
@@ -85,16 +96,18 @@ trigger:
     entity_id: !input finished_sensor
     to: "on"
 
-  - id: appliance_reset
+  # Covers every way the cycle stops being ready to unload: the Unloaded button,
+  # a state reset, or a new cycle starting.
+  - id: appliance_cleared
     platform: state
     entity_id: !input finished_sensor
     from: "on"
     to: "off"
 
-  # Fired when the user taps "Reset" in the mobile notification.
+  # Fired when the user taps "Unloaded" in the mobile notification.
   # The action string equals the finished_sensor entity_id — unique per instance,
   # resolved at blueprint instantiation time via !input so no template is needed.
-  - id: action_reset
+  - id: action_unloaded
     platform: event
     event_type: mobile_app_notification_action
     event_data:
@@ -102,7 +115,7 @@ trigger:
 
 variables:
   finished_sensor: !input finished_sensor
-  reset_button: !input reset_button
+  unloaded_button: !input unloaded_button
   cycle_duration_sensor: !input cycle_duration_sensor
   cycle_energy_sensor: !input cycle_energy_sensor
   appliance_name_input: !input appliance_name
@@ -136,8 +149,8 @@ variables:
     {%- if has_duration %} Cycle took {{ duration_text | trim }}.{% endif %}
     {%- if has_energy %} Used {{ energy_text | trim }}.{% endif %}
   notification_actions: >
-    {% if reset_button != '' %}
-      {{ [{"action": finished_sensor, "title": "Reset"}] }}
+    {% if unloaded_button != '' %}
+      {{ [{"action": finished_sensor, "title": "Unloaded"}] }}
     {% else %}
       {{ [] }}
     {% endif %}
@@ -169,7 +182,7 @@ action:
 
       - conditions:
           - condition: trigger
-            id: appliance_reset
+            id: appliance_cleared
         sequence:
           - action: persistent_notification.dismiss
             data:
@@ -183,18 +196,18 @@ action:
 
       - conditions:
           - condition: trigger
-            id: action_reset
+            id: action_unloaded
         sequence:
-          # All-or-nothing: only act when a reset button is configured, so we
+          # All-or-nothing: only act when an unloaded button is configured, so we
           # never clear the notification while leaving the state finished.
           - if:
               - condition: template
-                value_template: "{{ reset_button != '' }}"
+                value_template: "{{ unloaded_button != '' }}"
             then:
               - action: button.press
                 target:
-                  entity_id: "{{ reset_button }}"
-              # Clear here, not via the appliance_reset trigger: that follow-on
+                  entity_id: "{{ unloaded_button }}"
+              # Clear here, not via the appliance_cleared trigger: that follow-on
               # run fires while this one is still active and is dropped by single
               # mode.
               - action: persistent_notification.dismiss

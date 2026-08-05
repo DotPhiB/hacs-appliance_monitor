@@ -185,16 +185,16 @@ Ready-made automations you can import directly into Home Assistant.
 
 ### Appliance Finished Notification
 
-Sends a push notification when a cycle completes. Optionally includes cycle duration and energy consumed. The notification has a **Reset** action button that presses the Reset State button without opening the app — only shown when you configure a reset button.
+Sends a push notification when a cycle completes — on the `finished` sensor, so with the post-cycle phase enabled it fires when the load is ready rather than when the appliance finally goes quiet. Optionally includes cycle duration and energy consumed. The notification carries an **Unloaded** action button that acknowledges the cycle without opening the app, shown only when you configure the button; the notification clears itself however the cycle is acknowledged.
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FDotPhiB%2Fhacs-appliance_monitor%2Fmain%2Fblueprints%2Fappliance_finished.yaml)
 
 | Input | Required | Description |
 |---|---|---|
 | Finished Sensor | yes | `binary_sensor.<name>_finished` |
-| Reset Button | no | `button.<name>_reset_state` — enables the Reset action in the notification |
-| Cycle Duration Sensor | no | `sensor.<name>_cycle_duration` — adds duration to the message |
-| Cycle Energy Sensor | no | `sensor.<name>_cycle_energy` — adds energy to the message |
+| Unloaded Button | no | `button.<name>_unloaded` — enables the Unloaded action in the notification |
+| Cycle Duration Sensor | no | `sensor.<name>_cycle_duration` — adds duration to the message; final by the time the notification fires |
+| Cycle Energy Sensor | no | `sensor.<name>_cycle_energy` — adds energy to the message. It keeps counting through the post-cycle phase, so the message shows the energy up to that point, not the cycle's total |
 | Appliance Name | no | Display name; auto-detected from the entity if left blank |
 | Notification Service | yes | e.g. `notify.mobile_app_my_phone` |
 
