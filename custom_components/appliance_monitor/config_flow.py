@@ -11,13 +11,19 @@ from homeassistant.const import ATTR_DEVICE_CLASS
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_IDLE_THRESHOLD,
-    CONF_IDLE_TIMEOUT,
+    CONF_FINISHED_POWER_THRESHOLD,
+    CONF_FINISHED_WINDOW,
+    CONF_POST_CYCLE_ENABLED,
+    CONF_POST_CYCLE_POWER_THRESHOLD,
+    CONF_POST_CYCLE_WINDOW,
     CONF_POWER_SENSOR,
     CONF_START_DELAY,
     CONF_START_THRESHOLD,
-    DEFAULT_IDLE_THRESHOLD,
-    DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_FINISHED_POWER_THRESHOLD,
+    DEFAULT_FINISHED_WINDOW,
+    DEFAULT_POST_CYCLE_ENABLED,
+    DEFAULT_POST_CYCLE_POWER_THRESHOLD,
+    DEFAULT_POST_CYCLE_WINDOW,
     DEFAULT_START_DELAY,
     DEFAULT_START_THRESHOLD,
     DOMAIN,
@@ -25,6 +31,32 @@ from .const import (
 
 if TYPE_CHECKING:
     from .data import ApplianceMonitorConfigEntry
+
+
+def _window_selector() -> selector.NumberSelector:
+    """Build the selector for a sliding-window length."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0,
+            max=3600,
+            step=10,
+            unit_of_measurement="s",
+            mode=selector.NumberSelectorMode.BOX,
+        ),
+    )
+
+
+def _power_selector() -> selector.NumberSelector:
+    """Build the selector for an average-power threshold over a window."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0,
+            max=10000,
+            step=0.1,
+            unit_of_measurement="W",
+            mode=selector.NumberSelectorMode.BOX,
+        ),
+    )
 
 
 def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -56,29 +88,32 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
                 ),
             ),
             vol.Required(
-                CONF_IDLE_THRESHOLD,
-                default=defaults.get(CONF_IDLE_THRESHOLD, DEFAULT_IDLE_THRESHOLD),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=10000,
-                    step=0.5,
-                    unit_of_measurement="W",
-                    mode=selector.NumberSelectorMode.BOX,
-                ),
-            ),
+                CONF_FINISHED_WINDOW,
+                default=defaults.get(CONF_FINISHED_WINDOW, DEFAULT_FINISHED_WINDOW),
+            ): _window_selector(),
             vol.Required(
-                CONF_IDLE_TIMEOUT,
-                default=defaults.get(CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=3600,
-                    step=30,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
+                CONF_FINISHED_POWER_THRESHOLD,
+                default=defaults.get(
+                    CONF_FINISHED_POWER_THRESHOLD, DEFAULT_FINISHED_POWER_THRESHOLD
                 ),
-            ),
+            ): _power_selector(),
+            vol.Required(
+                CONF_POST_CYCLE_ENABLED,
+                default=defaults.get(
+                    CONF_POST_CYCLE_ENABLED, DEFAULT_POST_CYCLE_ENABLED
+                ),
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_POST_CYCLE_WINDOW,
+                default=defaults.get(CONF_POST_CYCLE_WINDOW, DEFAULT_POST_CYCLE_WINDOW),
+            ): _window_selector(),
+            vol.Required(
+                CONF_POST_CYCLE_POWER_THRESHOLD,
+                default=defaults.get(
+                    CONF_POST_CYCLE_POWER_THRESHOLD,
+                    DEFAULT_POST_CYCLE_POWER_THRESHOLD,
+                ),
+            ): _power_selector(),
         }
     )
 
@@ -86,7 +121,7 @@ def _threshold_schema(defaults: dict[str, Any]) -> vol.Schema:
 class ApplianceMonitorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Appliance Monitor."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize per-flow state."""

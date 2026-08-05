@@ -13,7 +13,17 @@ from homeassistant.const import Platform
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
-from .const import CONF_POWER_SENSOR, DOMAIN
+from .const import (
+    CONF_FINISHED_POWER_THRESHOLD,
+    CONF_FINISHED_WINDOW,
+    CONF_IDLE_THRESHOLD,
+    CONF_IDLE_TIMEOUT,
+    CONF_POWER_SENSOR,
+    DEFAULT_IDLE_THRESHOLD,
+    DEFAULT_IDLE_TIMEOUT,
+    DOMAIN,
+    LOGGER,
+)
 from .coordinator import STORAGE_VERSION, ApplianceMonitorCoordinator
 from .data import ApplianceMonitorData
 
@@ -27,6 +37,43 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
 ]
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant,
+    entry: ApplianceMonitorConfigEntry,
+) -> bool:
+    """Migrate a v1 entry (idle threshold + timeout) to the window/power pair."""
+    if entry.version >= 2:  # noqa: PLR2004
+        return True
+
+    def _migrate(values: dict) -> dict:
+        if CONF_IDLE_THRESHOLD not in values and CONF_IDLE_TIMEOUT not in values:
+            return values
+        migrated = dict(values)
+        # v1 asked for power to stay below a threshold for a timeout; v2 asks
+        # for the average across a window to be below it. Not the same test —
+        # a blip reset v1's timer where v2 absorbs it — but both sides are
+        # watts, and the readings between two samples are unknowable, so
+        # carrying the numbers over unchanged is the only mapping that does not
+        # invent a consumption profile. It errs towards the more forgiving
+        # behaviour, which is the point of the change.
+        migrated[CONF_FINISHED_POWER_THRESHOLD] = migrated.pop(
+            CONF_IDLE_THRESHOLD, DEFAULT_IDLE_THRESHOLD
+        )
+        migrated[CONF_FINISHED_WINDOW] = migrated.pop(
+            CONF_IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT
+        )
+        return migrated
+
+    hass.config_entries.async_update_entry(
+        entry,
+        data=_migrate(dict(entry.data)),
+        options=_migrate(dict(entry.options)),
+        version=2,
+    )
+    LOGGER.info("Migrated %s to windowed average-power detection", entry.title)
+    return True
 
 
 async def async_setup_entry(
@@ -52,7 +99,7 @@ async def async_setup_entry(
             and new_state.state == old_state.state
         ):
             return
-        await coordinator.async_refresh()
+        await coordinator.async_source_changed()
 
     entry.async_on_unload(
         async_track_state_change_event(
