@@ -55,11 +55,11 @@ Go to **Settings → Devices & Services → Add Integration** and search for **A
 | Power sensor | HA sensor entity reporting live power in watts | — |
 | Start threshold (W) | Power above this level means the appliance has started | 10 W |
 | Start delay (s) | Seconds power must stay at or above the start threshold before a cycle begins. Useful for appliances with a brief startup spike that isn't a real cycle start. Leave at 0 unless you actually see false starts — values larger than your sensor's update interval can cause real cycles to be missed. | 0 s |
-| Finished window (s) | Length of the sliding window the average is taken over. No check runs until a full window of readings exists, so this is also the shortest cycle that can be detected. Set to 0 to judge each reading on its own. | 300 s |
-| Finished power threshold (W) | The cycle counts as finished once the appliance averages less than this across the window | 3.6 W |
+| Finished window (s) | Length of the sliding window the average is taken over. No check runs until a full window of readings from the current phase exists, so this is also the shortest phase that can be detected. Set to 0 to judge each reading on its own. | 300 s |
+| Finished power threshold (W) | The cycle counts as finished once the appliance averages less than this across the window. Sits between the post-cycle draw and standby. | 3.6 W |
 | Detect post-cycle phase | Enable for appliances that keep drawing power after the programme ends — anti-crease tumbling, drying, cooling | off |
-| Post-cycle window (s) | Sliding window for the post-cycle check | 300 s |
-| Post-cycle power threshold (W) | The programme counts as done once the appliance averages less than this across the post-cycle window | 32.4 W |
+| Post-cycle window (s) | Sliding window for the post-cycle check. Long enough that the quietest stretch of the working phase never fills it. | 300 s |
+| Post-cycle power threshold (W) | The programme counts as done once the appliance averages less than this across the post-cycle window. Sits between the working draw and the post-cycle draw. | 32.4 W |
 
 All fields except the power sensor can be changed at any time via **Settings → Devices & Services → Appliance Monitor → Configure**.
 
@@ -79,22 +79,29 @@ That gain comes from the mechanism and from where you put the threshold, though 
 
 ### Tuning
 
-Both thresholds have to sit in the gap between what the appliance averages while working and what it averages when it is done. Measured over three cycles each, as average power over the window named in the last two rows:
+The threshold and the window have different jobs, and picking them is easier once they are kept apart.
+
+A **threshold** discriminates. It has to land in the gap between two phases and stay clear of the spikes of both, which is what the tuning sensors are for: you read both bands off one graph and put the threshold between them.
+
+A **window** does not discriminate. By the time a check runs the appliance is already in the phase being judged, so the window only has to measure that phase cleanly. Its length is set by the phase's own rhythm — how long it goes quiet, how far apart its bursts are — not by any comparison.
+
+Measured over three cycles each, as average power over the window named:
 
 | | Washing machine | Dryer |
 |---|---|---|
-| Working phase | 26–2136 W | 1200–2040 W |
-| Post-cycle phase | 6–11 W (continuous) | ~30 W over 60 s per tumble, one every 10 min |
-| Standby | 0.6–2.3 W | ~0 |
-| **Post-cycle window / threshold** | 300 s / 32.4 W | 60 s / 120 W |
-| **Finished window / threshold** | 300 s / 3.6 W | 720 s / 1 W |
+| Working phase | 26–2136 W; quietest 5 min averages 36 W | 175–2040 W; quietest minute averages 117 W |
+| Post-cycle phase | 11 W, falling to 2.3 W over ~50 min | 2–7 s tumbles peaking ~340 W, one every 10 min |
+| Standby | 0 W (~3 W while the display is lit) | 0 W |
+| **Post-cycle window / threshold** | 300 s / 20 W | 60 s / 50 W |
+| **Finished window / threshold** | 300 s / 2 W | 720 s / 1 W |
 
 The two appliances want opposite settings, which is why every check has its own window:
 
-- The **washer** soaks mid-cycle, so its post-cycle window must be long enough that a soak never looks like the end of the programme — 5 minutes is the shortest that works. Below that the bands overlap: at 1-minute resolution the working phase averages *under* what the machine draws when it is done.
-- The **dryer** draws continuously while working, so 60 seconds is already decisive. Its finished window instead has to be long — the anti-crease tumble fires every 10 minutes, and a window shorter than that would call the appliance finished between two tumbles.
+- The **washer** soaks mid-cycle, so its post-cycle window has to be long enough that a soak never looks like the end of the programme. Over 5 minutes the working phase never averages below 30 W across four hours of recorded cycles, while the post-programme plateau peaks at 11 W — so 20 W has roughly a factor of two either side. At 1 minute the two bands overlap outright.
+- The **dryer** draws continuously while working, so 60 seconds already separates 117 W of working from the tumbles. Shorter collapses: the working phase has moments where heater and drum are both off, and the tumbles are brief 340 W spikes, so a 30 s window reads 49 W of working against 48 W of post-cycle.
+- The **dryer's finished window** is the one that has nothing to do with discrimination. It is 720 s because the tumbles are 600 s apart, and a shorter window can land in the gap and read zero.
 
-Rule of thumb: the post-cycle window must exceed the appliance's longest low-draw phase while working; the finished window must exceed the gap between its post-cycle bursts.
+Rule of thumb: put each threshold in the gap between the two bands it separates, then make the window long enough that the phase below it never falls silent for a whole window.
 
 #### Measuring your own appliance
 
@@ -124,11 +131,11 @@ Each carries attributes for the details the value alone does not show:
 | `threshold_w` | Configured-window sensors only: the value this window is compared against |
 | `headroom_ratio` | Configured-window sensors only: the window divided by its threshold. **1.0 is the crossing point** — above it the appliance still counts as busy, below it the check fires. This is the number to watch while tuning: a working phase that only reaches 1.2 leaves almost no margin, while the measured washer sits around 600 mid-cycle and drops under 1 when it is done. `null` until the window has a verdict. |
 
-A window reports nothing until it has a full span of readings behind it, so after enabling the sensors you wait one window length before the longest ones say anything. They keep measuring across cycle boundaries, though: only *detection* is scoped to the current cycle — a window reaching back past the cycle start would judge the cycle on the quiet that preceded it — while the graph stays continuous.
+A window reports nothing until it has a full span of readings behind it, so after enabling the sensors you wait one window length before the longest ones say anything. They keep measuring across phase boundaries, though: only *detection* is scoped to the current phase — a window reaching back past the start of a phase would judge that phase on the one before it — while the graph stays continuous. That scoping is also why every phase lasts at least one of its own windows: a check cannot answer until it has a full window of the phase it is judging.
 
 Windows longer than the appliance's activity converge on the same value once they all contain the whole of it. That is the measurement working, not a fault: what distinguishes them is how quickly each one sheds that activity as it ages out, which is exactly what tells you how long a window has to be.
 
-A configured window of 0 is the exception: there is no span to measure, so the check reads live power and the sensor reports nothing rather than a meaningless zero. Your source's own power graph is the tuning view in that case.
+A configured window of 0 needs no exception: with no span to average over, the sensor reports the live reading, which is the same quantity every other window reports and the same one the check compares. It simply tracks your source sensor.
 
 ---
 
