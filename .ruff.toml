@@ -2,6 +2,11 @@
 
 target-version = "py314"
 
+# docs/ holds the recordings and the script that derives the README's numbers
+# from them. None of it is imported at runtime or shipped to an installation,
+# so neither the linter nor the formatter has anything to say about it.
+exclude = ["docs"]
+
 [lint]
 select = [
     "ALL",

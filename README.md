@@ -86,21 +86,21 @@ A **threshold** discriminates. It has to land in the gap between two phases and 
 
 A **window** does not discriminate. By the time a check runs the appliance is already in the phase being judged, so the window only has to measure that phase cleanly. Its length is set by the phase's own rhythm — how long it goes quiet, how far apart its bursts are — not by any comparison.
 
-Measured over three cycles each, as average power over the window named:
+Measured over three cycles each, both appliances on a Shelly Plug S Gen3, as average power over the window named. The traces are in [`docs/measurements/`](docs/measurements/) and every figure below is printed by the script beside them — including the ones that argue against the settings chosen.
 
 | | Washing machine | Dryer |
 |---|---|---|
-| Working phase | 26–2136 W; quietest 5 min averages 36 W | 175–2040 W; quietest minute averages 117 W |
-| Post-cycle phase | 11 W, falling to 2.3 W over ~50 min | 2–7 s tumbles peaking ~340 W, one every 10 min |
-| Standby | 0 W (~3 W while the display is lit) | 0 W |
+| Working phase | peaks at 2364 W; quietest 5 min averages 33 W | peaks at 2049 W; quietest minute averages 180 W |
+| Post-cycle phase | 5 min average peaks at 8.5 W; loudest single reading 38 W | 1 min average peaks at 21 W; ~6 s tumbles peaking at 350 W, one every 10 min |
+| Standby | 0 W, peaking at 9 W while the display is lit | 0 W |
 | **Post-cycle window / threshold** | 300 s / 20 W | 60 s / 50 W |
 | **Finished window / threshold** | 300 s / 2 W | 720 s / 1 W |
 
 The two appliances want opposite settings, which is why every check has its own window:
 
-- The **washer** soaks mid-cycle, so its post-cycle window has to be long enough that a soak never looks like the end of the programme. Over 5 minutes the working phase never averages below 30 W across four hours of recorded cycles, while the post-programme plateau peaks at 11 W — so 20 W has roughly a factor of two either side. At 1 minute the two bands overlap outright.
-- The **dryer** draws continuously while working, so 60 seconds already separates 117 W of working from the tumbles. Shorter collapses: the working phase has moments where heater and drum are both off, and the tumbles are brief 340 W spikes, so a 30 s window reads 49 W of working against 48 W of post-cycle.
-- The **dryer's finished window** is the one that has nothing to do with discrimination. It is 720 s because the tumbles are 600 s apart, and a shorter window can land in the gap and read zero.
+- The **washer** soaks mid-cycle, so its post-cycle window has to be long enough that a soak never looks like the end of the programme. Over 5 minutes the working phase never averages below 33 W, while the post-cycle plateau never rises above 8.5 W — so 20 W has a factor of 1.7 below it and 2.4 above. At 1 minute the two bands do not merely narrow, they **invert**: working falls to 7.6 W while post-cycle rises to 13.6 W, and no threshold can separate them.
+- The **dryer** draws continuously while working, so 60 seconds already separates 180 W of working from 21 W of post-cycle — a factor of 3.6 below the 50 W threshold and 2.3 above it. Halve the window and most of that is gone: the working phase has moments where heater and drum are both off, and the tumbles are brief 350 W spikes, so a 30 s window reads 60 W of working against 43 W of post-cycle.
+- The **dryer's finished window** is the one that has nothing to do with discrimination. It is 720 s because the tumbles are 600 s apart, and a shorter window can land in the gap and read zero. Across the whole train the 720 s average holds at 3.3–3.4 W — above the 1 W threshold, so the dryer stays in the post-cycle phase until the tumbles stop, which is the behaviour the two numbers were chosen to produce.
 
 Rule of thumb: put each threshold in the gap between the two bands it separates, then make the window long enough that the phase below it never falls silent for a whole window.
 
@@ -110,15 +110,15 @@ The same two appliances as complete settings. The windows and thresholds are the
 
 | Field | Washing machine | Dryer |
 |---|---|---|
-| Start threshold | 40 W | 500 W |
+| Start threshold | 40 W | 100 W |
 | Start delay | 0 s | 0 s |
 | Detect post-cycle phase | on | on |
 | Post-cycle window / threshold | 300 s / 20 W | 60 s / 50 W |
 | Finished window / threshold | 300 s / 2 W | 720 s / 1 W |
 
-- The **washer starts messily**: filling and pumping, not a clean step. It first reaches 40 W between 48 and 155 seconds after leaving standby, and holds it for about five seconds at a time. That is why the start delay is 0 — more than a couple of seconds and no real start survives it. The threshold itself sits above everything the machine shows outside the working phase: a few watts of lit display, and post-cycle blips reaching 38.6 W. It is cleared by the drum and pump alone, before the heating element comes on, so cold programmes are detected too.
-- The **dryer starts cleanly**: the heating element steps to ~2000 W within a second and stays there for the rest of the cycle. Any threshold from 10 W to 1500 W detects that equally fast, so putting it at 500 W costs nothing and buys clearance over the 350 W anti-crease tumbles.
-- That clearance is belt-and-braces rather than load-bearing, in both cases. No cycle can start out of the post-cycle phase, and neither appliance reaches `finished` while it is still fidgeting — the dryer's 720 s / 1 W check holds it in post-cycle through the whole tumble train. So if you need a programme that never runs the heater, a much lower dryer threshold is available: the tumbles have no `finished` state to restart from.
+- The **washer starts messily**: filling and pumping, not a clean step. It first reaches 40 W between 48 and 155 seconds after leaving standby, and holds it for about five seconds at a time. That is why the start delay is 0 — more than a couple of seconds and no real start survives it. The threshold itself sits above everything the machine shows outside the working phase: 9 W of lit display, and post-cycle blips reaching 38 W. It is cleared by the drum and pump alone, before the heating element comes on, so cold programmes are detected too.
+- The **dryer does not always start with its heater.** Two of the three recorded cycles step to 2000 W within a second, and any threshold up to 1500 W catches those instantly. The third ran the drum alone at ~190 W for ten minutes before the heater came on: a 500 W threshold would have called that cycle 598 seconds late. 100 W catches all three one second after the draw leaves standby, and — unlike 200 W, which on that third cycle would ride on a single five-second inrush spike — it is cleared by the drum's sustained draw and stays cleared for the rest of the cycle. An appliance can have more than one way of starting, and only a recording shows it.
+- **100 W sits below the 350 W tumbles, and that is fine** — but it is the post-cycle phase that makes it fine. The tumbles happen during that phase, no cycle can start out of it, and the 720 s / 1 W check keeps the dryer there until the train ends, so the tumbles never meet a state they could restart from. Turn the phase off and the reasoning collapses with it: then the threshold has to clear the tumbles itself, which means 500 W and the ten-minute lag.
 
 #### Measuring your own appliance
 
