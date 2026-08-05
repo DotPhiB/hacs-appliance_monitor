@@ -15,7 +15,7 @@ CONF_POST_CYCLE_ENABLED = "post_cycle_enabled"
 CONF_POST_CYCLE_WINDOW = "post_cycle_window"
 CONF_POST_CYCLE_POWER_THRESHOLD = "post_cycle_power_threshold"
 
-# Superseded by the window/energy pair above; still read when migrating v1 entries.
+# Superseded by the window/power pair above; still read when migrating v1 entries.
 CONF_IDLE_THRESHOLD = "idle_threshold"
 CONF_IDLE_TIMEOUT = "idle_timeout"
 
@@ -32,9 +32,9 @@ DEFAULT_POST_CYCLE_POWER_THRESHOLD: float = 32.4
 DEFAULT_IDLE_THRESHOLD: int = 3
 DEFAULT_IDLE_TIMEOUT: int = 30
 
-# Tuning sensors: energy over a fixed window, reported on every reading no matter
-# what state the appliance is in. Spread across the range worth comparing when
-# picking a window — see README "Tuning".
+# Tuning sensors: average power over a fixed window, reported on every reading no
+# matter what state the appliance is in. Spread across the range worth comparing
+# when picking a window — see README "Tuning".
 TUNING_FIXED_WINDOWS: tuple[tuple[str, int], ...] = (
     ("30s", 30),
     ("1m", 60),
