@@ -9,8 +9,20 @@ permissions:
   contents: read
 
 jobs:
+  # The tagged ref is what gets published, so it is what gets checked. Hassfest
+  # reads the manifest version the tag was just bumped for.
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  validate:
+    uses: ./.github/workflows/validate.yml
+
   release:
     name: "Publish"
+    needs: [lint, tests, validate]
     runs-on: "ubuntu-latest"
     permissions:
       contents: write
