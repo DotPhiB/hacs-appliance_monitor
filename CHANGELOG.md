@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes are documented here. This project follows [Semantic Versioning](https://semver.org/).
+All notable changes are documented here. Versions are [PEP 440](https://peps.python.org/pep-0440/) identifiers carrying [Semantic Versioning](https://semver.org/)'s Major.Minor.Patch meaning, tagged with the leading `v` PEP 440 normalises away. Prereleases use its canonical spellings and rank `2.0.0a3 < 2.0.0b2 < 2.0.0rc1 < 2.0.0`, the order [AwesomeVersion](https://github.com/ludeeus/awesomeversion) gives HACS and Home Assistant.
 
 ## [Unreleased]
 

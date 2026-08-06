@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: "Publish"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Classify the tag
+        id: version
+        run: |
+          set -euo pipefail
+          # Accepted tags, a subset of PEP 440: vX.Y.Z, or vX.Y.Z plus aN, bN or
+          # rcN. Its other segments are unused; its alpha/beta aliases unusable —
+          # AwesomeVersion reads 2.0.0beta5 == 2.0.0b9. The glob filter above
+          # admits more, so a bad tag fails here rather than matching nothing.
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            prerelease=false
+          elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a|b|rc)[0-9]+$ ]]; then
+            # HACS reads the release flag, not the tag name, to hide these.
+            prerelease=true
+          else
+            echo "::error::Tag ${GITHUB_REF_NAME} is not a shape this project publishes — expected vX.Y.Z, or vX.Y.ZaN / vX.Y.ZbN / vX.Y.ZrcN for a prerelease"
+            exit 1
+          fi
+          # The manifest and changelog carry the bare identifier; PEP 440
+          # normalises the leading v away.
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${version} (prerelease: ${prerelease})"
+
+      - name: Check the manifest version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # HACS takes the version from the tag, Home Assistant from the manifest.
+          # A bug report quotes the manifest, so the two must agree — prereleases
+          # included.
+          manifest=$(python3 -c "import json; print(json.load(open('custom_components/appliance_monitor/manifest.json'))['version'])")
+          if [ "${VERSION}" != "${manifest}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match manifest version ${manifest}"
+            exit 1
+          fi
+
+      - name: Check the changelog
+        if: steps.version.outputs.prerelease == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Stable only: a prerelease still lives under the Unreleased heading.
+          if ! grep -q "^## \[${VERSION}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${VERSION}]' section — still under Unreleased?"
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          # gh is preinstalled on GitHub-hosted runners; no third-party action to pin.
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(--title "${GITHUB_REF_NAME}" --generate-notes --verify-tag)
+          if [ "${PRERELEASE}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${GITHUB_REF_NAME}" "${args[@]}"
