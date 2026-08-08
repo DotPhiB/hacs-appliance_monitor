@@ -23,6 +23,10 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "config_entry": {
+            # Which schema the entry is on, so a report says whether it was
+            # migrated or created fresh.
+            "version": entry.version,
+            "minor_version": entry.minor_version,
             "data": dict(entry.data),
             "options": dict(entry.options),
         },

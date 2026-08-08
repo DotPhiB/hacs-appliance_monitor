@@ -532,10 +532,12 @@ class TestWindowShorterThanUpdates:
             sm.update(0.0, _t(60))
             return sm
 
+        # The 20 s window covers the last full interval of work plus the quiet
+        # one after it: the appliance drew POWER_W for half of that span.
         assert fed(10.0).window_measure(10.0).value == pytest.approx(0.0)
-        assert fed(20.0).window_measure(20.0).value == pytest.approx(900.0)
+        assert fed(20.0).window_measure(20.0).value == pytest.approx(self.POWER_W / 2)
         assert fed(10.0).state is ApplianceState.FINISHED  # 0 W < 500 W
-        assert fed(20.0).state is ApplianceState.RUNNING  # 900 W > 500 W
+        assert fed(20.0).state is ApplianceState.RUNNING  # 1800 W > 500 W
 
 
 class TestPostCycle:
@@ -981,11 +983,23 @@ class TestEnergy:
         assert sm.cycle_energy_kwh == pytest.approx(0.01)
         assert sm.total_energy_kwh == pytest.approx(0.01)
 
-    def test_trapezoidal_with_varying_power(self, sm: ApplianceStateMachine) -> None:
-        """Trapezoidal: average of (1000+2000)/2 = 1500 W for 10 s."""
+    def test_reading_is_held_until_the_next_one(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """The interval carries the power at its start: 1000 W for 10 s."""
         sm.update(1000.0, _t(0))
         sm.update(2000.0, _t(10))
-        assert sm.cycle_energy_kwh == pytest.approx(15000 / 3_600_000.0)
+        assert sm.cycle_energy_kwh == pytest.approx(10000 / 3_600_000.0)
+
+    def test_a_burst_counts_for_as_long_as_it_was_held(
+        self, sm: ApplianceStateMachine
+    ) -> None:
+        """A 1 s rise then a 10 s hold: 10 s of the burst, not half of each edge."""
+        sm.update(0.0, _t(0))
+        sm.update(self.POWER_W, _t(1))
+        sm.update(0.0, _t(11))
+        # Averaging the edges would count 5.5 s of it instead.
+        assert sm.cycle_energy_kwh == pytest.approx(10 * self.POWER_W / 3_600_000.0)
 
     def test_cycle_energy_does_not_integrate_while_idle(
         self, sm: ApplianceStateMachine

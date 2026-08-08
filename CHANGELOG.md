@@ -4,6 +4,8 @@ All notable changes are documented here. Versions are [PEP 440](https://peps.pyt
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-08
+
 ### Added
 - `button.<name>_unloaded` — acknowledges a finished cycle (POST_CYCLE or FINISHED → IDLE) and is a no-op in every other state, so a stray press cannot cut a running cycle short. Last-cycle duration, energy and start timestamp are preserved.
 - **Tuning sensors** — seven diagnostic sensors reporting the average power drawn over a trailing window (30 s, 1/2/5/10 min, plus one for each configured window), updated on every reading whatever state the appliance is in. Disabled by default: enable them, run a cycle, and read the working/post-cycle/standby bands straight off the history graph instead of eyeballing a spiky power curve. Because an average is a rate, it does not scale with the window it is taken over: all seven sit on one axis, a steady draw reads the same on every one, and they diverge only where the appliance's power is genuinely changing. Attributes carry the window length, how many readings the source itself published inside it (poll re-reads excluded, so `0` honestly means a silent source), what triggered the update, and — for the configured windows — the threshold being compared against plus a `headroom_ratio` where 1.0 is the point at which the check fires.
@@ -13,6 +15,11 @@ All notable changes are documented here. Versions are [PEP 440](https://peps.pyt
 - `cycle_duration` and `cycle_energy` are no longer diagnostic entities — the current cycle's figures show on the default device card next to the state and the Unloaded button.
 - `cycle_duration` and `total_operating_time` default to an hours display (`1 h 32 min`) instead of raw seconds. Values are still stored in seconds; the display unit stays switchable per entity, and existing entities keep whatever unit they are set to.
 - **Breaking** — the end of a cycle is judged on the **average power across a sliding window** instead of the live reading against an idle threshold. `idle_threshold` and `idle_timeout` are replaced by `finished_power_threshold` + `finished_window`; the window is also the shortest cycle that can be detected, and setting it to 0 takes the check on each reading as it arrives. Existing entries migrate automatically with both numbers carried over unchanged: the test is not the same one — a blip reset the old timer where an average absorbs it — but both sides are watts, and what the appliance actually drew between two readings is unknowable, so rescaling would mean inventing a consumption profile. The window test is the more forgiving of the two, which is the point of the change; if your appliance idles near zero with occasional spikes, its average sits well below those peaks, so check the tuning sensors before trusting the carried-over threshold.
+
+- The diagnostics download reports the config entry's schema version, so a bug report says whether the entry was migrated from 1.0.0 or created fresh.
+
+### Fixed
+- Energy totals under-counted by around 1 %. A reading now counts for the whole interval it was in force, instead of being averaged with the one that ended it. Measured against the plug's own counter over a washing-machine cycle: 0.4516 kWh reported against 0.4575 kWh metered.
 
 ## [1.0.0] - 2026-05-30
 

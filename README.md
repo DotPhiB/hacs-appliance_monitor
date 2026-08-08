@@ -9,7 +9,7 @@ Designed for washing machines, dishwashers, dryers, and any appliance with a mea
 [![Lint](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/lint.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/lint.yml)
 [![Tests](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/tests.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/tests.yml)
 [![Validate](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/validate.yml/badge.svg)](https://github.com/DotPhiB/hacs-appliance_monitor/actions/workflows/validate.yml)
-[![License](https://img.shields.io/github/license/DotPhiB/hacs-appliance_monitor)](LICENSE)
+[![License](https://img.shields.io/github/license/DotPhiB/hacs-appliance_monitor)](https://github.com/DotPhiB/hacs-appliance_monitor/blob/main/LICENSE)
 
 ---
 
