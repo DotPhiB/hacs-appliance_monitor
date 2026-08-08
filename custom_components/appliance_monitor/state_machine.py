@@ -138,8 +138,12 @@ class ApplianceStateMachine:
             # skip integration this tick to avoid negative energy/operating time.
             if dt_seconds < 0:
                 dt_seconds = 0.0
-            avg_power_w = (self._last_power + power) / 2.0
-            energy_kwh = avg_power_w * dt_seconds / W_SECONDS_PER_KWH
+            # A reading is step-held: it stands until the next one arrives, so
+            # the interval carries the power reported at its start. Averaging it
+            # with the new value splits every step in half, and since a fall is
+            # followed by a long quiet interval where a rise is followed by a
+            # short busy one, the halves do not cancel — the total comes out low.
+            energy_kwh = self._last_power * dt_seconds / W_SECONDS_PER_KWH
             self._total_energy_kwh += energy_kwh
             # The cycle keeps consuming while it idles after the programme, so
             # its energy runs on to FINISHED. Its duration does not: the work

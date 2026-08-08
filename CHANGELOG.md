@@ -14,6 +14,9 @@ All notable changes are documented here. Versions are [PEP 440](https://peps.pyt
 - `cycle_duration` and `total_operating_time` default to an hours display (`1 h 32 min`) instead of raw seconds. Values are still stored in seconds; the display unit stays switchable per entity, and existing entities keep whatever unit they are set to.
 - **Breaking** — the end of a cycle is judged on the **average power across a sliding window** instead of the live reading against an idle threshold. `idle_threshold` and `idle_timeout` are replaced by `finished_power_threshold` + `finished_window`; the window is also the shortest cycle that can be detected, and setting it to 0 takes the check on each reading as it arrives. Existing entries migrate automatically with both numbers carried over unchanged: the test is not the same one — a blip reset the old timer where an average absorbs it — but both sides are watts, and what the appliance actually drew between two readings is unknowable, so rescaling would mean inventing a consumption profile. The window test is the more forgiving of the two, which is the point of the change; if your appliance idles near zero with occasional spikes, its average sits well below those peaks, so check the tuning sensors before trusting the carried-over threshold.
 
+### Fixed
+- Energy totals under-counted by around 1 %. A reading now counts for the whole interval it was in force, instead of being averaged with the one that ended it. Measured against the plug's own counter over a washing-machine cycle: 0.4516 kWh reported against 0.4575 kWh metered.
+
 ## [1.0.0] - 2026-05-30
 
 Initial public release.
