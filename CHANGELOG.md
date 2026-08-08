@@ -4,6 +4,8 @@ All notable changes are documented here. Versions are [PEP 440](https://peps.pyt
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-08
+
 ### Added
 - `button.<name>_unloaded` — acknowledges a finished cycle (POST_CYCLE or FINISHED → IDLE) and is a no-op in every other state, so a stray press cannot cut a running cycle short. Last-cycle duration, energy and start timestamp are preserved.
 - **Tuning sensors** — seven diagnostic sensors reporting the average power drawn over a trailing window (30 s, 1/2/5/10 min, plus one for each configured window), updated on every reading whatever state the appliance is in. Disabled by default: enable them, run a cycle, and read the working/post-cycle/standby bands straight off the history graph instead of eyeballing a spiky power curve. Because an average is a rate, it does not scale with the window it is taken over: all seven sit on one axis, a steady draw reads the same on every one, and they diverge only where the appliance's power is genuinely changing. Attributes carry the window length, how many readings the source itself published inside it (poll re-reads excluded, so `0` honestly means a silent source), what triggered the update, and — for the configured windows — the threshold being compared against plus a `headroom_ratio` where 1.0 is the point at which the check fires.
