@@ -133,17 +133,12 @@ variables:
   has_energy: >
     {{ cycle_energy_sensor != ''
        and states(cycle_energy_sensor) not in ['unavailable', 'unknown', 'none'] }}
+  # Both report the entity as displayed, unit included. Reformatting them here
+  # would have to know which unit the entity currently shows.
   duration_text: >
-    {% if has_duration %}
-      {% set s = states(cycle_duration_sensor) | float(0) | int %}
-      {% set h = s // 3600 %}
-      {% set m = (s % 3600) // 60 %}
-      {% if h > 0 %}{{ h }}h {{ m }}m{% else %}{{ m }} min{% endif %}
-    {% endif %}
+    {% if has_duration %}{{ states(cycle_duration_sensor, with_unit=True) }}{% endif %}
   energy_text: >
-    {% if has_energy %}
-      {{ states(cycle_energy_sensor) | float(0) | round(3) }} kWh
-    {% endif %}
+    {% if has_energy %}{{ states(cycle_energy_sensor, with_unit=True) }}{% endif %}
   message: >
     {{ appliance_name }} finished at {{ finished_at }}.
     {%- if has_duration %} Cycle took {{ duration_text | trim }}.{% endif %}
